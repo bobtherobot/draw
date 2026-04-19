@@ -46,9 +46,12 @@ Open `http://localhost:8000` in a browser.
 
 Shapes are plain JS objects: `{ id, type, attrs, style }`.
 
-- `attrs` — SVG presentation attributes (e.g., `x`, `y`, `width`, `height`, `d`, `cx`, `cy`)
+- `type` — `'path'`, `'text'`, or `'group'`. **Rect and ellipse are not stored** — drawing tools convert them to `path` immediately on creation, and `io.js` converts them on SVG load. All geometry lives in `attrs.d`.
+- `attrs` — SVG presentation attributes (`d` for paths; `x`, `y` for text)
 - `style` — `{ fill, stroke, strokeWidth }`
 - Text-specific extra fields: `_text`, `_fontSize`, `_fontFamily`, `_isArea`, `_boxWidth`, `_boxHeight`
+
+**SVG `transform` is never persisted.** Scale and rotate operations use a live `transform` attribute as a drag preview only; on mouseup the transform is removed and the change is baked into `attrs` coordinates (`scaleShape`, `bakeRotation`). `syncElement` never writes a `transform` attribute.
 
 `makeElement(shape)` creates the SVG element; `syncElement(el, shape)` updates it. Text shapes get special treatment in `syncTextElement` — positions are on `<tspan>` children, not the `<text>` element, so the raw attribute loop used for other shapes won't move text correctly. Always use `syncElement` when syncing text.
 
@@ -113,16 +116,17 @@ Area text selection bounding box is derived from `shape._boxWidth`/`_boxHeight` 
 |---|---|
 | `index.html` | Layout, toolbar, panels, Document Settings dialog |
 | `src/state.js` | Global mutable state + `findShape()`, `allShapes()`, `getActiveLayer()` |
-| `src/render.js` | `render()` pipeline; exports `renderSelection`, `renderTextGuides`, `getElement` |
+| `src/render.js` | `render()` pipeline; exports `renderSelection`, `renderTextGuides`, `getElement`; scale + rotate handles in `renderSelection`; wireframe node overlay (see `.claude/docs/WIREFRAME-MODE.md`) |
 | `src/viewport.js` | Pan/zoom, `screenToDoc`, `fitToArtboard` |
 | `src/history.js` | `execute`, `undo`, `redo` |
-| `src/shapes/index.js` | `createShape`, `makeElement`, `syncElement`, `translateShape`, `getBBox` |
-| `src/tools/select.js` | Click-select, rubber-band, drag-move |
+| `src/shapes/index.js` | `createShape`, `makeElement`, `syncElement`, `translateShape`, `scaleShape`, `bakeRotation`, `rotatePoint`, `getBBox`; also `rectToPathD`, `ellipseToPathD` |
+| `src/tools/select.js` | Click-select, rubber-band, drag-move, scale handles (see `.claude/docs/SCALE-TOOL.md`), rotate handle (see `.claude/docs/ROTATE-TOOL.md`) |
 | `src/tools/pen.js` | Bezier pen; exports `buildPathD` |
 | `src/tools/type.js` | Point text tool |
 | `src/tools/typearea.js` | Area text tool |
 | `src/tools/_textedit.js` | Shared textarea editing overlay |
 | `src/main.js` | Tool switching, keyboard shortcuts, style panel, menus, doc settings dialog |
+| `src/commandbar.js` | View mode buttons (normal / wireframe), dock/float bar (see `.claude/docs/WIREFRAME-MODE.md`) |
 | `src/io.js` | `newDocument`, `openSVG`, `saveSVG`, `exportSVG` |
 
 ## Toolbar Tools

@@ -199,8 +199,10 @@ export function offsetTextGuidesForDrag(selectedIds, dx, dy) {
 }
 
 export function renderSelection() {
-  const ov = overlay();
-  ov.innerHTML = '';
+  const ov  = overlay();
+  const ovh = overlayHit();
+  ov.innerHTML  = '';
+  ovh.innerHTML = '';
 
   // Node editing replaces the selection box with a wireframe + anchor overlay.
   if (state.nodeEditingActive) return;
@@ -243,6 +245,60 @@ export function renderSelection() {
   rect.setAttribute('stroke-dasharray', da);
   rect.style.pointerEvents = 'none';
   ov.appendChild(rect);
+
+  if (state.activeTool !== 'select') return;
+
+  const midX = (minX + maxX) / 2;
+  const midY = (minY + maxY) / 2;
+  const hs   = 3.5 / z;
+  const HANDLES = [
+    { id: 'nw', x: minX, y: minY, cursor: 'nwse-resize' },
+    { id: 'n',  x: midX, y: minY, cursor: 'ns-resize'   },
+    { id: 'ne', x: maxX, y: minY, cursor: 'nesw-resize'  },
+    { id: 'e',  x: maxX, y: midY, cursor: 'ew-resize'    },
+    { id: 'se', x: maxX, y: maxY, cursor: 'nwse-resize'  },
+    { id: 's',  x: midX, y: maxY, cursor: 'ns-resize'    },
+    { id: 'sw', x: minX, y: maxY, cursor: 'nesw-resize'  },
+    { id: 'w',  x: minX, y: midY, cursor: 'ew-resize'    },
+  ];
+  for (const h of HANDLES) {
+    const hr = document.createElementNS(NS, 'rect');
+    hr.setAttribute('x',      h.x - hs);
+    hr.setAttribute('y',      h.y - hs);
+    hr.setAttribute('width',  hs * 2);
+    hr.setAttribute('height', hs * 2);
+    hr.setAttribute('fill',   'white');
+    hr.setAttribute('stroke', '#0066ff');
+    hr.setAttribute('stroke-width', sw);
+    hr.dataset.handle = h.id;
+    hr.style.cursor   = h.cursor;
+    ovh.appendChild(hr);
+  }
+
+  // Rotate handle — circle above the top-centre, connected by a stem line
+  const stemLen = 18 / z;
+  const rotR    =  4.5 / z;
+  const rotX    = midX;
+  const rotY    = minY - stemLen;
+
+  const stem = document.createElementNS(NS, 'line');
+  stem.setAttribute('x1', rotX); stem.setAttribute('y1', minY - sw);
+  stem.setAttribute('x2', rotX); stem.setAttribute('y2', rotY + rotR);
+  stem.setAttribute('stroke', '#0066ff');
+  stem.setAttribute('stroke-width', sw);
+  stem.style.pointerEvents = 'none';
+  ov.appendChild(stem);
+
+  const rotHandle = document.createElementNS(NS, 'circle');
+  rotHandle.setAttribute('cx', rotX);
+  rotHandle.setAttribute('cy', rotY);
+  rotHandle.setAttribute('r',  rotR);
+  rotHandle.setAttribute('fill',   'white');
+  rotHandle.setAttribute('stroke', '#0066ff');
+  rotHandle.setAttribute('stroke-width', sw);
+  rotHandle.dataset.handle = 'rotate';
+  rotHandle.style.cursor   = 'crosshair';
+  ovh.appendChild(rotHandle);
 }
 
 let _lastPanelVersion = null;
@@ -337,8 +393,8 @@ function renderLayersPanel() {
   }
 }
 
-const SHAPE_ICONS = { rect: '▭', ellipse: '◯', path: '⌇', text: 'T', group: '▣' };
-const SHAPE_NAMES = { rect: 'Rectangle', ellipse: 'Ellipse', path: 'Path', text: 'Text', group: 'Group' };
+const SHAPE_ICONS = { path: '⌇', text: 'T', group: '▣' };
+const SHAPE_NAMES = { path: 'Path', text: 'Text', group: 'Group' };
 
 function shapeLabel(shape, layer) {
   const base = SHAPE_NAMES[shape.type] ?? shape.type;
@@ -370,14 +426,8 @@ function renderObjectInfo() {
   })();
   if (!found) return;
 
-  const a = found.attrs;
-  let text = found.type;
-  if (found.type === 'rect')
-    text += `\nW: ${Math.round(a.width)}  H: ${Math.round(a.height)}\nX: ${Math.round(a.x)}  Y: ${Math.round(a.y)}`;
-  else if (found.type === 'ellipse')
-    text += `\nW: ${Math.round(a.rx*2)}  H: ${Math.round(a.ry*2)}`;
   info.style.whiteSpace = 'pre';
-  info.textContent = text;
+  info.textContent = found.type;
 }
 
 export function getElement(id) { return elMap.get(id); }
@@ -412,16 +462,6 @@ function getShapePoints(shape) {
   if (shape.type === 'path') {
     const { anchors } = parsePathD(shape.attrs.d || '');
     return anchors.map(a => ({ x: a.x, y: a.y }));
-  }
-  if (shape.type === 'rect') {
-    const x = +(shape.attrs.x || 0), y = +(shape.attrs.y || 0);
-    const w = +(shape.attrs.width || 0), h = +(shape.attrs.height || 0);
-    return [{ x, y }, { x: x + w, y }, { x, y: y + h }, { x: x + w, y: y + h }];
-  }
-  if (shape.type === 'ellipse') {
-    const cx = +(shape.attrs.cx || 0), cy = +(shape.attrs.cy || 0);
-    const rx = +(shape.attrs.rx || 0), ry = +(shape.attrs.ry || 0);
-    return [{ x: cx, y: cy - ry }, { x: cx + rx, y: cy }, { x: cx, y: cy + ry }, { x: cx - rx, y: cy }];
   }
   if (shape.type === 'text') {
     return [{ x: +(shape.attrs.x || 0), y: +(shape.attrs.y || 0) }];

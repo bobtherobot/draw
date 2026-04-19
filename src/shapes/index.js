@@ -6,6 +6,24 @@ export function createShape(type, attrs, style) {
   return { id: nextId(), type, attrs: { ...attrs }, style: { ...style } };
 }
 
+// ── Shape-to-path converters ───────────────────────────────────────────────────
+
+export function rectToPathD(x, y, w, h) {
+  return `M ${x} ${y} L ${x + w} ${y} L ${x + w} ${y + h} L ${x} ${y + h} Z`;
+}
+
+const KAPPA = 0.5522847498; // (4/3) * tan(π/8) — cubic-bezier circle approximation
+export function ellipseToPathD(cx, cy, rx, ry) {
+  const kx = rx * KAPPA, ky = ry * KAPPA;
+  return (
+    `M ${cx + rx} ${cy} ` +
+    `C ${cx + rx} ${cy - ky} ${cx + kx} ${cy - ry} ${cx} ${cy - ry} ` +
+    `C ${cx - kx} ${cy - ry} ${cx - rx} ${cy - ky} ${cx - rx} ${cy} ` +
+    `C ${cx - rx} ${cy + ky} ${cx - kx} ${cy + ry} ${cx} ${cy + ry} ` +
+    `C ${cx + kx} ${cy + ry} ${cx + rx} ${cy + ky} ${cx + rx} ${cy} Z`
+  );
+}
+
 export function makeElement(shape) {
   const tag = shape.type === 'group' ? 'g' : shape.type;
   const el = document.createElementNS(NS, tag);
@@ -17,7 +35,7 @@ export function makeElement(shape) {
 export function syncElement(el, shape) {
   if (shape.type === 'text') { syncTextElement(el, shape); return; }
 
-  // Remove stale attrs not in shape.attrs
+  // Remove stale attrs not in shape.attrs (also removes any stale transform)
   for (const { name } of [...el.attributes]) {
     if (name === 'data-shape-id') continue;
     if (name !== 'fill' && name !== 'stroke' && name !== 'stroke-width' && !(name in shape.attrs))
@@ -35,6 +53,7 @@ export function syncElement(el, shape) {
     el.setAttribute('stroke', shape.style.stroke);
     el.setAttribute('stroke-width', shape.style.strokeWidth);
   }
+
 }
 
 // ── Text rendering ─────────────────────────────────────────────
@@ -121,12 +140,103 @@ export function getBBox(shape) {
   try { return el.getBBox(); } catch { return null; }
 }
 
+// Scale a shape by (sx, sy) around origin (ox, oy) in document units
+export function scaleShape(shape, sx, sy, ox, oy) {
+  const a = shape.attrs;
+  if (shape.type === 'path') {
+    a.d = scalePathD(a.d, sx, sy, ox, oy);
+  } else if (shape.type === 'text') {
+    a.x = ox + (+(a.x || 0) - ox) * sx;
+    a.y = oy + (+(a.y || 0) - oy) * sy;
+    if (shape._isArea) {
+      shape._boxWidth  = (shape._boxWidth  || 0) * sx;
+      shape._boxHeight = (shape._boxHeight || 0) * sy;
+      if (shape._boxWidth  < 0) { a.x += shape._boxWidth;  shape._boxWidth  = -shape._boxWidth;  }
+      if (shape._boxHeight < 0) { a.y += shape._boxHeight; shape._boxHeight = -shape._boxHeight; }
+    }
+  }
+  if (shape._rotCx != null) {
+    shape._rotCx = ox + (shape._rotCx - ox) * sx;
+    shape._rotCy = oy + (shape._rotCy - oy) * sy;
+  }
+}
+
+function scalePathD(d, sx, sy, ox, oy) {
+  return d.replace(/([MLHVCSQTAZ])\s*([-\d.,\s]*)/gi, (match, cmd, args) => {
+    if (cmd === 'Z' || cmd === 'z') return cmd;
+    const nums = args.trim().split(/[\s,]+/).filter(Boolean).map(Number);
+    const out = [];
+    if (cmd === 'M' || cmd === 'L') {
+      for (let i = 0; i < nums.length; i += 2)
+        out.push(ox + (nums[i] - ox) * sx, oy + (nums[i + 1] - oy) * sy);
+    } else if (cmd === 'C') {
+      for (let i = 0; i < nums.length; i += 6)
+        out.push(
+          ox + (nums[i]   - ox) * sx, oy + (nums[i + 1] - oy) * sy,
+          ox + (nums[i+2] - ox) * sx, oy + (nums[i + 3] - oy) * sy,
+          ox + (nums[i+4] - ox) * sx, oy + (nums[i + 5] - oy) * sy,
+        );
+    } else {
+      out.push(...nums);
+    }
+    return cmd + out.join(' ');
+  });
+}
+
+// Rotate a point (x, y) by angleDeg degrees around (cx, cy)
+export function rotatePoint(x, y, angleDeg, cx, cy) {
+  const r = angleDeg * Math.PI / 180;
+  const cos = Math.cos(r), sin = Math.sin(r);
+  return {
+    x: cx + (x - cx) * cos - (y - cy) * sin,
+    y: cy + (x - cx) * sin + (y - cy) * cos,
+  };
+}
+
+// Rotate all path coordinates by angleDeg around (cx, cy)
+function rotatePathD(d, angleDeg, cx, cy) {
+  return d.replace(/([MLHVCSQTAZ])\s*([-\d.,\s]*)/gi, (match, cmd, args) => {
+    if (cmd === 'Z' || cmd === 'z') return cmd;
+    const nums = args.trim().split(/[\s,]+/).filter(Boolean).map(Number);
+    const out = [];
+    if (cmd === 'M' || cmd === 'L') {
+      for (let i = 0; i < nums.length; i += 2) {
+        const p = rotatePoint(nums[i], nums[i + 1], angleDeg, cx, cy);
+        out.push(p.x, p.y);
+      }
+    } else if (cmd === 'C') {
+      for (let i = 0; i < nums.length; i += 6) {
+        const p1 = rotatePoint(nums[i],   nums[i + 1], angleDeg, cx, cy);
+        const p2 = rotatePoint(nums[i + 2], nums[i + 3], angleDeg, cx, cy);
+        const p3 = rotatePoint(nums[i + 4], nums[i + 5], angleDeg, cx, cy);
+        out.push(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y);
+      }
+    } else {
+      out.push(...nums);
+    }
+    return cmd + out.join(' ');
+  });
+}
+
+// Bake a rotation into a shape's actual coordinates (removes SVG transform dependency)
+export function bakeRotation(shape, angleDeg, cx, cy) {
+  if (shape.type === 'path') {
+    shape.attrs.d = rotatePathD(shape.attrs.d, angleDeg, cx, cy);
+  } else if (shape.type === 'text') {
+    const p = rotatePoint(+(shape.attrs.x || 0), +(shape.attrs.y || 0), angleDeg, cx, cy);
+    shape.attrs.x = p.x;
+    shape.attrs.y = p.y;
+  }
+  shape._rotation = undefined;
+  shape._rotCx    = undefined;
+  shape._rotCy    = undefined;
+}
+
 // Translate a shape by (dx, dy) in document units
 export function translateShape(shape, dx, dy) {
   const a = shape.attrs;
-  if (shape.type === 'rect')    { a.x = (a.x || 0) + dx; a.y = (a.y || 0) + dy; }
-  if (shape.type === 'ellipse') { a.cx = (a.cx || 0) + dx; a.cy = (a.cy || 0) + dy; }
-  if (shape.type === 'text')    { a.x = (a.x || 0) + dx; a.y = (a.y || 0) + dy; }
+  if (shape.type === 'text') { a.x = (a.x || 0) + dx; a.y = (a.y || 0) + dy; }
+  if (shape._rotCx != null)  { shape._rotCx += dx; shape._rotCy += dy; }
   if (shape.type === 'path') {
     // Shift all coordinate values in the path `d` attribute
     a.d = shiftPathD(a.d, dx, dy);

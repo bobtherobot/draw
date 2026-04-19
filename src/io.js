@@ -1,6 +1,7 @@
 import { state } from './state.js';
 import { render } from './render.js';
 import { fitToArtboard } from './viewport.js';
+import { rectToPathD, ellipseToPathD } from './shapes/index.js';
 
 export function newDocument() {
   state.layers = [{ id: 'l1', name: 'Layer 1', visible: true, locked: false, shapes: [] }];
@@ -101,23 +102,38 @@ function parseSVG(svgText) {
 }
 
 function elementToShape(el) {
-  const type = el.tagName.toLowerCase();
-  if (!['rect', 'ellipse', 'path', 'text'].includes(type)) return null;
+  const tag = el.tagName.toLowerCase();
+  if (!['rect', 'ellipse', 'path', 'text'].includes(tag)) return null;
+
+  const style = {
+    fill:        el.getAttribute('fill')         || '#000000',
+    stroke:      el.getAttribute('stroke')       || 'none',
+    strokeWidth: parseFloat(el.getAttribute('stroke-width') || '1'),
+  };
+  const id = el.dataset.id || `s${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+  // Convert legacy rect/ellipse elements to paths
+  if (tag === 'rect') {
+    const x = parseFloat(el.getAttribute('x')      || '0');
+    const y = parseFloat(el.getAttribute('y')      || '0');
+    const w = parseFloat(el.getAttribute('width')  || '0');
+    const h = parseFloat(el.getAttribute('height') || '0');
+    return { id, type: 'path', attrs: { d: rectToPathD(x, y, w, h) }, style };
+  }
+  if (tag === 'ellipse') {
+    const cx = parseFloat(el.getAttribute('cx') || '0');
+    const cy = parseFloat(el.getAttribute('cy') || '0');
+    const rx = parseFloat(el.getAttribute('rx') || '0');
+    const ry = parseFloat(el.getAttribute('ry') || '0');
+    return { id, type: 'path', attrs: { d: ellipseToPathD(cx, cy, rx, ry) }, style };
+  }
 
   const attrs = {};
   const skipAttrs = new Set(['fill', 'stroke', 'stroke-width', 'data-id', 'style']);
   for (const { name, value } of el.attributes) {
     if (!skipAttrs.has(name) && !name.startsWith('data-')) attrs[name] = isNaN(value) ? value : Number(value);
   }
-
-  const style = {
-    fill: el.getAttribute('fill') || '#000000',
-    stroke: el.getAttribute('stroke') || 'none',
-    strokeWidth: parseFloat(el.getAttribute('stroke-width') || '1'),
-  };
-
-  const id = el.dataset.id || `s${Date.now()}_${Math.random().toString(36).slice(2)}`;
-  return { id, type, attrs, style };
+  return { id, type: tag, attrs, style };
 }
 
 function downloadFile(content, filename, mime) {

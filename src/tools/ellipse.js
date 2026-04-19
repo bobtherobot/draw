@@ -1,6 +1,6 @@
 import { state, getActiveLayer } from '../state.js';
 import { screenToDoc, isPanning } from '../viewport.js';
-import { createShape } from '../shapes/index.js';
+import { createShape, ellipseToPathD } from '../shapes/index.js';
 import { execute } from '../history.js';
 import { render } from '../render.js';
 
@@ -20,7 +20,7 @@ export function onMouseDown(e) {
   drawing = true;
   startPos = screenToDoc(e.clientX, e.clientY);
 
-  previewEl = document.createElementNS(NS, 'ellipse');
+  previewEl = document.createElementNS(NS, 'path');
   previewEl.setAttribute('fill', state.currentStyle.fill);
   previewEl.setAttribute('stroke', state.currentStyle.stroke);
   previewEl.setAttribute('stroke-width', state.currentStyle.strokeWidth);
@@ -36,11 +36,7 @@ export function onMouseMove(e) {
   if (e.shiftKey) { const r = Math.min(rx, ry); rx = r; ry = r; }
   const cx = (startPos.x + pos.x) / 2;
   const cy = (startPos.y + pos.y) / 2;
-
-  previewEl.setAttribute('cx', cx);
-  previewEl.setAttribute('cy', cy);
-  previewEl.setAttribute('rx', rx);
-  previewEl.setAttribute('ry', ry);
+  previewEl.setAttribute('d', ellipseToPathD(cx, cy, rx, ry));
 }
 
 export function onMouseUp(e) {
@@ -56,7 +52,7 @@ export function onMouseUp(e) {
 
   const cx = (start.x + pos.x) / 2;
   const cy = (start.y + pos.y) / 2;
-  const shape = createShape('ellipse', { cx, cy, rx, ry }, { ...state.currentStyle });
+  const shape = createShape('path', { d: ellipseToPathD(cx, cy, rx, ry) }, { ...state.currentStyle });
   const layer = getActiveLayer();
 
   execute({

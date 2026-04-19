@@ -1,6 +1,6 @@
 import { state, getActiveLayer } from '../state.js';
 import { screenToDoc, isPanning } from '../viewport.js';
-import { createShape } from '../shapes/index.js';
+import { createShape, rectToPathD } from '../shapes/index.js';
 import { execute } from '../history.js';
 import { render } from '../render.js';
 
@@ -20,7 +20,7 @@ export function onMouseDown(e) {
   drawing = true;
   startPos = screenToDoc(e.clientX, e.clientY);
 
-  previewEl = document.createElementNS(NS, 'rect');
+  previewEl = document.createElementNS(NS, 'path');
   previewEl.setAttribute('fill', state.currentStyle.fill);
   previewEl.setAttribute('stroke', state.currentStyle.stroke);
   previewEl.setAttribute('stroke-width', state.currentStyle.strokeWidth);
@@ -36,11 +36,7 @@ export function onMouseMove(e) {
   let w = Math.abs(pos.x - startPos.x);
   let h = Math.abs(pos.y - startPos.y);
   if (e.shiftKey) { const s = Math.min(w, h); w = s; h = s; }
-
-  previewEl.setAttribute('x', x);
-  previewEl.setAttribute('y', y);
-  previewEl.setAttribute('width',  w);
-  previewEl.setAttribute('height', h);
+  previewEl.setAttribute('d', rectToPathD(x, y, w, h));
 }
 
 export function onMouseUp(e) {
@@ -56,7 +52,7 @@ export function onMouseUp(e) {
 
   const x = Math.min(start.x, pos.x);
   const y = Math.min(start.y, pos.y);
-  const shape = createShape('rect', { x, y, width: w, height: h }, { ...state.currentStyle });
+  const shape = createShape('path', { d: rectToPathD(x, y, w, h) }, { ...state.currentStyle });
   const layer = getActiveLayer();
 
   execute({

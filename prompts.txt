@@ -88,3 +88,13 @@ The "select" tool will still allow us to select individual objects, but the user
   7. Double-click group — enter isolated group editing mode
   8. Display units — pt/mm/cm/in selector exists in Options but coordinates still
   always show px
+
+
+--- TODO: ensure we consolidate wirefarme into WIREFRAME-MODE.md
+
+--- 
+after rotation, we should translate the SVG transform into reality, so we don't rely on SVG transforms, and the shape's path (and nodes) are literally redrawn (maybe?) to match what the transform applied.
+
+---
+
+while the rectangle and elipse tools will draw their respective shapes, trying to move one of these no longer works, after the move is complete, the objects snap back to their original position.
