@@ -34,19 +34,16 @@ const elMap = new Map();
 const layerElMap = new Map();
 
 /**
- * Initialize the renderer with DOM references from app.js.
- * Call once after buildApp().
+ * Initialize the renderer with the SVG canvas element.
+ * Locates child groups by id. Call once after buildApp().
  *
- * @param {SVGGElement} artboardLayer
- * @param {SVGGElement} docRoot
- * @param {SVGGElement} textGuidesGroup
- * @param {SVGGElement} overlayGroup
+ * @param {SVGElement} svg  — the #canvas SVG element
  */
-export function initRenderer(artboardLayer, docRoot, textGuidesGroup, overlayGroup) {
-  _artboardLayer  = artboardLayer;
-  _docRoot        = docRoot;
-  _textGuides     = textGuidesGroup;
-  _overlayManager = new OverlayManager(overlayGroup);
+export function initRenderer(svg) {
+  _artboardLayer  = svg.querySelector('#artboard-layer');
+  _docRoot        = svg.querySelector('#doc-root');
+  _textGuides     = svg.querySelector('#text-guides');
+  _overlayManager = new OverlayManager(svg.querySelector('#overlay'));
   _selectionLayer = _overlayManager.acquireLayer('selection');
 }
 
