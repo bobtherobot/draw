@@ -42,3 +42,5 @@ NODE-EDITING - add marquee selection logic to this doc.
 next we want to provide the ability to select multiple nodes at once using a marquee selection (drag a bounding box to select multiple nodes at once).
 
 ---
+
+currently, the system has been working on node editing based on one object at a time. I'd like to be able to select more than one shape and be able to edit nodes in multiple shapes at a time.

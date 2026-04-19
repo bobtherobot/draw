@@ -201,7 +201,7 @@ export function renderSelection() {
   ov.innerHTML = '';
 
   // Node editing replaces the selection box with a wireframe + anchor overlay.
-  if (state.nodeEditingId) return;
+  if (state.nodeEditingActive) return;
 
   if (state.selection.size === 0) return;
 

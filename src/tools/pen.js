@@ -111,7 +111,7 @@ export function onMouseDown(e) {
   if (postDrawEditing) {
     const hitAnchor = nodeHitTestAnchors(e.clientX, e.clientY);
     const hitHandle = nodeHitTestHandles(e.clientX, e.clientY);
-    if (hitAnchor !== -1 || hitHandle) {
+    if (hitAnchor !== null || hitHandle) {
       // Clicked a node → hand off to direct-selection tool.
       postDrawEditing = false; // prevent cancel() from re-stopping node editing
       document.querySelector('.tool-btn[data-tool="node"]')?.click();
@@ -147,7 +147,7 @@ export function onMouseMove(e) {
   if (postDrawEditing) {
     // Hollow arrow when over the shape/nodes, crosshair when out in the open.
     const hitAnchor  = nodeHitTestAnchors(e.clientX, e.clientY);
-    let   overShape  = hitAnchor !== -1;
+    let   overShape  = hitAnchor !== null;
     if (!overShape) {
       const sid = getEditingShapeId();
       let el = document.elementFromPoint(e.clientX, e.clientY);
@@ -315,7 +315,7 @@ function finalizePath(closePath) {
   anchors = [];
   closing = false;
   nodeBeginEditing(shape.id);
-  nodeSelectAnchor(lastIdx);
+  nodeSelectAnchor(shape.id, lastIdx);
   nodeDrawOverlay();
   postDrawEditing = true;
 }
