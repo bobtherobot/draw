@@ -10,6 +10,7 @@ export const state = {
   currentStyle: { fill: '#000000', stroke: 'none', strokeWidth: 1 },
   clipboard: null,
   nodeEditingActive: false,  // true while node tool is editing paths (suppresses selection box)
+  viewMode: 'normal',        // 'normal' | 'wireframe'
   doc: { width: 800, height: 600, name: 'Untitled' },
   options: { theme: 'light', units: 'px', pasteboardColor: null },
 };

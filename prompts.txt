@@ -44,3 +44,47 @@ next we want to provide the ability to select multiple nodes at once using a mar
 ---
 
 currently, the system has been working on node editing based on one object at a time. I'd like to be able to select more than one shape and be able to edit nodes in multiple shapes at a time.
+
+---
+
+lets add a new mode "wireframe", which will change how we see objects on the artboard. When in wireframe mode, all shapes (objects) will render as wireframes and nodes points. So no fill will be applied to anything, all we will see is the wireframes.
+
+...
+
+lets add a new panel for global controls (we probably want a better name for this, since we're already have a "controls" panel).
+
+In this global panel, we'll include broader controls for operations. At this point, we'll only want to include a radio group (displayed as buttons) that control the view mode.
+
+This global panel will be a horizontal bar, just below the main menu, and should be dock-able, and draggable. Where we can dock it to the top, or drag it away and it will be free-floating. When it gets dragged close to the top menu it will automatically snap to the top and be docked. When dragging it away from the top it'll undock.
+
+This panel doesn't need a title bar, only a side "handle" for dragging and docking purposes.
+
+This view mode will have 2 options: "normal" or "wireframe" (we'll use icons for these).
+
+This new mode "wireframe", will change how we see objects on the artboard. When in wireframe mode, all shapes (objects) will render as wireframes and nodes points. So no fill nor stroke will be applied to anything, all we will see is the wireframes.
+
+TODO: tool controls panel - where when a tool is selected, tool-specific controls will be available.
+
+
+--- TODO
+
+when in wireframe mode, the behaviour of our app will significantly change.
+
+We will be treating everything on the artboard as if we are in direct select mode -- as if all objects were selected and we can edit all nodes at once.
+
+The "select" tool will still allow us to select individual objects, but the user should be able to select any node (control point) or shape line to activate that shape 
+
+---
+
+
+
+  1. Node tool (A) — direct selection & bezier handle editing (stub exists in
+  src/tools/node.js)
+  2. Scale handles — drag corners of selection bounding box to resize shapes
+  3. Rotate handle — rotate selected shapes
+  4. Text re-editing — double-click an existing text shape to re-enter edit mode
+  5. Font controls — font size / font family in the style panel
+  6. Group / Ungroup (Cmd+G / Cmd+Shift+G) — stubs exist, just log to console
+  7. Double-click group — enter isolated group editing mode
+  8. Display units — pt/mm/cm/in selector exists in Options but coordinates still
+  always show px

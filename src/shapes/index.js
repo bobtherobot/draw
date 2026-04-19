@@ -1,4 +1,4 @@
-import { nextId } from '../state.js';
+import { nextId, state } from '../state.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 
@@ -26,9 +26,15 @@ export function syncElement(el, shape) {
   for (const [k, v] of Object.entries(shape.attrs))
     el.setAttribute(k, String(v));
 
-  el.setAttribute('fill', shape.style.fill);
-  el.setAttribute('stroke', shape.style.stroke);
-  el.setAttribute('stroke-width', shape.style.strokeWidth);
+  if (state.viewMode === 'wireframe') {
+    el.setAttribute('fill', 'none');
+    el.setAttribute('stroke', '#777');
+    el.setAttribute('stroke-width', String(1 / state.viewport.zoom));
+  } else {
+    el.setAttribute('fill', shape.style.fill);
+    el.setAttribute('stroke', shape.style.stroke);
+    el.setAttribute('stroke-width', shape.style.strokeWidth);
+  }
 }
 
 // ── Text rendering ─────────────────────────────────────────────
@@ -46,7 +52,8 @@ function syncTextElement(el, shape) {
 
   el.setAttribute('font-size',   fontSize);
   el.setAttribute('font-family', fontFamily);
-  el.setAttribute('fill', shape.style.fill === 'none' ? '#000000' : (shape.style.fill || '#000000'));
+  el.setAttribute('fill', state.viewMode === 'wireframe' ? '#777'
+    : (shape.style.fill === 'none' ? '#000000' : (shape.style.fill || '#000000')));
   el.removeAttribute('stroke');
   el.removeAttribute('stroke-width');
   el.removeAttribute('x');

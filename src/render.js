@@ -1,5 +1,6 @@
 import { state, findShape } from './state.js';
 import { makeElement, syncElement } from './shapes/index.js';
+import { parsePathD } from './path-utils.js';
 
 const NS  = 'http://www.w3.org/2000/svg';
 const elMap     = new Map(); // shapeId → SVGElement
@@ -19,6 +20,7 @@ export function render() {
   renderLayersPanel();
   renderSelection();
   renderObjectInfo();
+  renderWireframeNodes();
   if (_overlayHook) _overlayHook();
 }
 
@@ -379,3 +381,76 @@ function renderObjectInfo() {
 }
 
 export function getElement(id) { return elMap.get(id); }
+
+// ── Wireframe node overlay ─────────────────────────────────────
+
+const NS_SVG = 'http://www.w3.org/2000/svg';
+let _nodePool = [];
+let _nu = 0;
+
+function poolNodeRect(nodeGroup, x, y, hs) {
+  let el;
+  if (_nu < _nodePool.length) {
+    el = _nodePool[_nu];
+    el.style.display = '';
+  } else {
+    el = document.createElementNS(NS_SVG, 'rect');
+    el.style.pointerEvents = 'none';
+    nodeGroup.appendChild(el);
+    _nodePool.push(el);
+  }
+  _nu++;
+  el.setAttribute('x', x - hs);
+  el.setAttribute('y', y - hs);
+  el.setAttribute('width',  hs * 2);
+  el.setAttribute('height', hs * 2);
+  el.setAttribute('fill', '#e8973a');
+  el.setAttribute('stroke', 'none');
+}
+
+function getShapePoints(shape) {
+  if (shape.type === 'path') {
+    const { anchors } = parsePathD(shape.attrs.d || '');
+    return anchors.map(a => ({ x: a.x, y: a.y }));
+  }
+  if (shape.type === 'rect') {
+    const x = +(shape.attrs.x || 0), y = +(shape.attrs.y || 0);
+    const w = +(shape.attrs.width || 0), h = +(shape.attrs.height || 0);
+    return [{ x, y }, { x: x + w, y }, { x, y: y + h }, { x: x + w, y: y + h }];
+  }
+  if (shape.type === 'ellipse') {
+    const cx = +(shape.attrs.cx || 0), cy = +(shape.attrs.cy || 0);
+    const rx = +(shape.attrs.rx || 0), ry = +(shape.attrs.ry || 0);
+    return [{ x: cx, y: cy - ry }, { x: cx + rx, y: cy }, { x: cx, y: cy + ry }, { x: cx - rx, y: cy }];
+  }
+  if (shape.type === 'text') {
+    return [{ x: +(shape.attrs.x || 0), y: +(shape.attrs.y || 0) }];
+  }
+  return [];
+}
+
+function renderWireframeNodes() {
+  const nodeGroup = document.getElementById('wireframe-nodes');
+  if (!nodeGroup) return;
+
+  _nu = 0;
+
+  if (state.viewMode !== 'wireframe') {
+    for (const el of _nodePool) el.style.display = 'none';
+    return;
+  }
+
+  const z  = state.viewport.zoom;
+  const hs = 2.2 / z;
+
+  for (const layer of state.layers) {
+    if (!layer.visible) continue;
+    for (const shape of layer.shapes) {
+      for (const pt of getShapePoints(shape)) {
+        poolNodeRect(nodeGroup, pt.x, pt.y, hs);
+      }
+    }
+  }
+
+  for (let i = _nu; i < _nodePool.length; i++) _nodePool[i].style.display = 'none';
+}

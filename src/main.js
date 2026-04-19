@@ -4,6 +4,7 @@ import { initViewport, fitToArtboard, screenToDoc, isPanning } from './viewport.
 import { execute, undo, redo } from './history.js';
 import { initIO, newDocument, openSVG, saveSVG, exportSVG } from './io.js';
 import { initPanel } from './panel.js';
+import { initCommandBar } from './commandbar.js';
 
 import * as selectTool  from './tools/select.js';
 import * as nodeTool    from './tools/node.js';
@@ -735,6 +736,7 @@ window.addEventListener('DOMContentLoaded', () => {
   initLayersPanel();
   initIO();
   initPanel();
+  initCommandBar();
   initDocSettings();
   initOptions();
 
