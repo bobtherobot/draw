@@ -9,6 +9,7 @@ export const state = {
   viewport: { x: 0, y: 0, zoom: 1 },
   currentStyle: { fill: '#000000', stroke: 'none', strokeWidth: 1 },
   clipboard: null,
+  nodeEditingId: null,  // shapeId being node-edited (suppresses selection box)
   doc: { width: 800, height: 600, name: 'Untitled' },
   options: { theme: 'light', units: 'px', pasteboardColor: null },
 };

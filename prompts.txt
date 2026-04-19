@@ -1,1 +1,44 @@
 lets consolidate what we've done so far so we can continue working later.
+
+
+---
+that's the correct behaviour, but we don't want to just change tools. Rather, we want the newly drawn shape to be in edit mode, while maintaining the pen tool active, so we can start drawign a new shape if we want.
+
+---
+
+so when in editing node mode, when multiple nodes are selected, we are completing the full bubble/capture on click, because we have to be a little more accurate with our clicks and selections. So the behaviour should not be like how we're selecting objects, where mouse down and drag to move an object
+
+---
+
+so when in editing node mode, when multiple nodes are selected, we need a unique move behaviour (slightly different from how we deal with selecting full objects/shapes).
+
+Here, since we go through the full mouse bubble/capture phase for each node we choose when the shift key is selected to add additional nodes to our selection, where each node is clicked (mouse down, up) explicitly.
+
+We want to maintain all of the nodes selected, so if we click on an already selected node (again), we shouldn't reset what is selected to only the last selected node -- we should maintain all selected nodes, we are only updating the primary node that we will will use as the reference for moving the entire list of selected nodes.
+
+--- 
+
+after drawing a shape with the pen tool, which causes the newly drawn shape to enter into node edit mode, when the mouse is hovering over the shape, the cursor should change to the arrow, and if the user starts to adjust any of the nodes on the newly drawn shape, we can assume they want to enter into "direct selection" mode and we can automatically swithc tools to "direct selection". However, when the hover outside of the shape, we can assume the user intent is to start drawing a new shape, and stay in pen mode.
+
+So the next click action after finishing drawing will determine the intent:
+1. if the user clicks on any of the nodes in the recently drawn shape, then automatically switch to "direct selection" mode (change tools).
+2. if the user doesn't click on any previously drawn node, then they are remaining in pen mode and will be drawing a new shape.
+
+We shouls also change the cursor to a hollow (white) cursor arrow when in edit node mode, and a normal black cursor arrow when in "selection" tool.
+
+---
+ok, that's good you're selecting the correct node. However, since this node is now selected (auto selected), if the user clicks and drags this auto-selected node, it should move. Currently, clicking the auto-selected node is de-selecting it -- it should remain selected so that the user can move it.
+
+
+---
+ok, we're getting close, but when i click (mouse down) on the auto-selected node and immediately start dragging, it doesn't drag. I have to click it before i can drag it. I'd like to be able to drag it immediately (since it's already selected).
+
+---
+
+NODE-EDITING - add marquee selection logic to this doc.
+
+---
+
+next we want to provide the ability to select multiple nodes at once using a marquee selection (drag a bounding box to select multiple nodes at once).
+
+---

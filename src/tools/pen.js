@@ -23,11 +23,25 @@ import { screenToDoc, isPanning } from '../viewport.js';
 import { createShape } from '../shapes/index.js';
 import { execute } from '../history.js';
 import { render } from '../render.js';
+import {
+  beginEditing    as nodeBeginEditing,
+  drawOverlay     as nodeDrawOverlay,
+  getEditingShapeId,
+  deactivate      as nodeStopEditing,
+  onMouseDown     as nodeOnMouseDown,
+  onMouseMove     as nodeOnMouseMove,
+  onMouseUp       as nodeOnMouseUp,
+  hitTestHandles  as nodeHitTestHandles,
+  hitTestAnchors  as nodeHitTestAnchors,
+  selectAnchor    as nodeSelectAnchor,
+  HOLLOW_ARROW_CURSOR,
+} from './node.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 const CLOSE_RADIUS = 8; // px screen distance to snap-close
 
 // ── Tool state ─────────────────────────────────────────────────
+let postDrawEditing = false; // true while the last drawn shape is in node-edit mode
 let active    = false;
 let anchors   = [];
 let mouseDown = false;
@@ -92,6 +106,26 @@ export function deactivate() { cancel(); }
 
 export function onMouseDown(e) {
   if (isPanning() || e.button !== 0) return;
+
+  // Post-draw node-edit mode: the click determines user intent.
+  if (postDrawEditing) {
+    const hitAnchor = nodeHitTestAnchors(e.clientX, e.clientY);
+    const hitHandle = nodeHitTestHandles(e.clientX, e.clientY);
+    if (hitAnchor !== -1 || hitHandle) {
+      // Clicked a node → hand off to direct-selection tool.
+      postDrawEditing = false; // prevent cancel() from re-stopping node editing
+      document.querySelector('.tool-btn[data-tool="node"]')?.click();
+      // Forward the original mousedown so the drag starts without a second click.
+      nodeOnMouseDown(e);
+      return;
+    }
+    // Clicked outside any node → exit node-edit mode and begin a new pen path.
+    nodeStopEditing();
+    postDrawEditing = false;
+    state.selection.clear();
+    // fall through to normal pen onMouseDown logic
+  }
+
   mouseDown = true;
 
   const pos = screenToDoc(e.clientX, e.clientY);
@@ -110,6 +144,23 @@ export function onMouseDown(e) {
 }
 
 export function onMouseMove(e) {
+  if (postDrawEditing) {
+    // Hollow arrow when over the shape/nodes, crosshair when out in the open.
+    const hitAnchor  = nodeHitTestAnchors(e.clientX, e.clientY);
+    let   overShape  = hitAnchor !== -1;
+    if (!overShape) {
+      const sid = getEditingShapeId();
+      let el = document.elementFromPoint(e.clientX, e.clientY);
+      while (el && el.id !== 'canvas') {
+        if (el.dataset?.shapeId === sid) { overShape = true; break; }
+        el = el.parentElement;
+      }
+    }
+    document.getElementById('canvas').style.cursor = overShape ? HOLLOW_ARROW_CURSOR : 'crosshair';
+    nodeOnMouseMove(e);
+    return;
+  }
+
   cursorPos = screenToDoc(e.clientX, e.clientY);
 
   if (mouseDown) {
@@ -147,6 +198,8 @@ export function onMouseMove(e) {
 }
 
 export function onMouseUp(e) {
+  if (postDrawEditing) { nodeOnMouseUp(e); return; }
+
   if (closing) {
     closing   = false;
     mouseDown = false;
@@ -257,9 +310,14 @@ function finalizePath(closePath) {
     undo() { layer.shapes = layer.shapes.filter(s => s.id !== shape.id); state.selection.clear(); render(); },
   });
 
+  const lastIdx = closePath ? 0 : anchors.length - 1;
   active  = false;
   anchors = [];
   closing = false;
+  nodeBeginEditing(shape.id);
+  nodeSelectAnchor(lastIdx);
+  nodeDrawOverlay();
+  postDrawEditing = true;
 }
 
 function cancel() {
@@ -268,6 +326,7 @@ function cancel() {
   closing   = false;
   mouseDown = false;
   clearOverlay();
+  if (postDrawEditing) { nodeStopEditing(); postDrawEditing = false; }
 }
 
 function clearOverlay() {

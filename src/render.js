@@ -9,6 +9,9 @@ function docRoot()    { return document.getElementById('doc-root'); }
 function overlay()    { return document.getElementById('overlay'); }
 function overlayHit() { return document.getElementById('overlay-hit'); }
 
+let _overlayHook = null;
+export function setOverlayHook(fn) { _overlayHook = fn; }
+
 export function render() {
   renderArtboard();
   renderLayers();
@@ -16,6 +19,7 @@ export function render() {
   renderLayersPanel();
   renderSelection();
   renderObjectInfo();
+  if (_overlayHook) _overlayHook();
 }
 
 function renderArtboard() {
@@ -195,6 +199,9 @@ export function offsetTextGuidesForDrag(selectedIds, dx, dy) {
 export function renderSelection() {
   const ov = overlay();
   ov.innerHTML = '';
+
+  // Node editing replaces the selection box with a wireframe + anchor overlay.
+  if (state.nodeEditingId) return;
 
   if (state.selection.size === 0) return;
 

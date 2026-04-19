@@ -121,7 +121,7 @@ function initKeyboard() {
     if (cmd && e.key === 'v') { e.preventDefault(); pasteSelection(); return; }
     if (cmd && e.key === 'a') { e.preventDefault(); selectAll(); return; }
     if (e.key === 'Delete' || e.key === 'Backspace') {
-      if (state.selection.size > 0) { e.preventDefault(); deleteSelection(); return; }
+      if (state.selection.size > 0 && state.activeTool !== 'node') { e.preventDefault(); deleteSelection(); return; }
     }
 
     // Object
