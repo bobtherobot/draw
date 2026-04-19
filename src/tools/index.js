@@ -1,0 +1,20 @@
+import { registerTool } from '../core/registry.js';
+import { SelectTool }   from './select.js';
+import { NodeTool }     from './node.js';
+import { PenTool }      from './pen.js';
+import { RectTool }     from './rect.js';
+import { EllipseTool }  from './ellipse.js';
+import { TypeTool }     from './type.js';
+import { TypeAreaTool } from './typearea.js';
+import { ZoomTool }     from './zoom.js';
+import { HandTool }     from './hand.js';
+
+registerTool(new SelectTool());
+registerTool(new NodeTool());
+registerTool(new PenTool());
+registerTool(new RectTool());
+registerTool(new EllipseTool());
+registerTool(new TypeTool());
+registerTool(new TypeAreaTool());
+registerTool(new ZoomTool());
+registerTool(new HandTool());
