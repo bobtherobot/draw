@@ -1,0 +1,115 @@
+// ─────────────────────────────────────────────────────────────
+// Reusable LESS mixins
+// All color references use var(--theme-*) CSS custom properties.
+// ─────────────────────────────────────────────────────────────
+
+// Layout
+.flex-center() {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.flex-col() {
+  display: flex;
+  flex-direction: column;
+}
+.flex-row() {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+}
+.fill-parent() {
+  position: absolute;
+  inset: 0;
+}
+
+// Panel chrome — raised surface with border
+.panel-chrome() {
+  background:    var(--theme-bg-raised);
+  border:        1px solid var(--theme-border);
+  border-radius: @radius-md;
+}
+
+// Icon button — square button that hosts an inline SVG icon
+.icon-btn() {
+  .flex-center();
+  width: 30px;
+  height: 30px;
+  border-radius: @radius-sm;
+  cursor: pointer;
+  color: var(--theme-fg);
+  flex-shrink: 0;
+  transition: background @transition-fast, color @transition-fast;
+
+  svg {
+    width: 16px;
+    height: 16px;
+    fill: currentColor;
+    pointer-events: none;
+    flex-shrink: 0;
+  }
+
+  &:hover  { background: var(--theme-bg-hover); }
+  &.active { background: var(--theme-accent); color: var(--theme-accent-fg); }
+  &:disabled, &[disabled] {
+    color: var(--theme-fg-disabled);
+    pointer-events: none;
+  }
+}
+
+// Text input field
+.input-field() {
+  background:    var(--theme-bg-sunken);
+  border:        1px solid var(--theme-border);
+  border-radius: @radius-sm;
+  color:         var(--theme-fg);
+  font-family:   @font-ui;
+  font-size:     @font-size-sm;
+  padding:       @sp-1 @sp-2;
+  outline:       none;
+  transition:    border-color @transition-fast;
+
+  &:focus { border-color: var(--theme-border-focus); }
+}
+
+// Scrollable container
+.scrollable() {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--theme-border) transparent;
+
+  &::-webkit-scrollbar       { width: 6px; }
+  &::-webkit-scrollbar-thumb { background: var(--theme-border); border-radius: 3px; }
+  &::-webkit-scrollbar-track { background: transparent; }
+}
+
+// Divider line
+.divider-h() {
+  height: 1px;
+  background: var(--theme-border);
+  margin: @sp-1 0;
+  flex-shrink: 0;
+}
+.divider-v() {
+  width: 1px;
+  background: var(--theme-border);
+  margin: 0 @sp-1;
+  flex-shrink: 0;
+  align-self: stretch;
+}
+
+// Label / section header inside panels
+.panel-label() {
+  font-family: @font-ui;
+  font-size:   @font-size-sm;
+  color:       var(--theme-fg-dim);
+  user-select: none;
+  padding:     @sp-1 @sp-2;
+}
+
+// Ellipsis overflow text
+.text-ellipsis() {
+  overflow:      hidden;
+  white-space:   nowrap;
+  text-overflow: ellipsis;
+}
