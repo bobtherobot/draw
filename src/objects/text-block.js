@@ -1,0 +1,180 @@
+import { ObjectType } from './base.js';
+
+const NS = 'http://www.w3.org/2000/svg';
+
+// Cache for wrapText results — keyed by "text|fontSize|fontFamily|boxWidth"
+const _wrapCache = new Map();
+let   _measureCtx = null;
+
+function getMeasureCtx() {
+  if (!_measureCtx) _measureCtx = document.createElement('canvas').getContext('2d');
+  return _measureCtx;
+}
+
+function wrapText(text, fontSize, fontFamily, boxWidth) {
+  const key = `${text}|${fontSize}|${fontFamily}|${boxWidth}`;
+  if (_wrapCache.has(key)) return _wrapCache.get(key);
+
+  const ctx  = getMeasureCtx();
+  ctx.font   = `${fontSize}px ${fontFamily}`;
+  const words = text.split(' ');
+  const lines = [];
+  let   cur   = '';
+
+  for (const word of words) {
+    const test = cur ? `${cur} ${word}` : word;
+    if (ctx.measureText(test).width > boxWidth && cur) {
+      lines.push(cur);
+      cur = word;
+    } else {
+      cur = test;
+    }
+  }
+  if (cur) lines.push(cur);
+
+  _wrapCache.set(key, lines);
+  if (_wrapCache.size > 200) {
+    // Evict oldest entry
+    _wrapCache.delete(_wrapCache.keys().next().value);
+  }
+  return lines;
+}
+
+export class TextBlockObjectType extends ObjectType {
+  get id()    { return 'text-block'; }
+  get label() { return 'Text Block'; }
+  get icon()  { return 'object-text-block'; }
+
+  createShape(initAttrs, initStyle, nextId) {
+    return {
+      id:           nextId(),
+      type:         'text-block',
+      attrs:        { x: 0, y: 0, ...initAttrs },
+      style:        { fill: '#000000', stroke: 'none', strokeWidth: 1, ...initStyle },
+      _text:        initAttrs._text        ?? '',
+      _fontSize:    initAttrs._fontSize    ?? 14,
+      _fontFamily:  initAttrs._fontFamily  ?? 'sans-serif',
+      _boxWidth:    initAttrs._boxWidth    ?? 200,
+      _boxHeight:   initAttrs._boxHeight   ?? 100,
+    };
+  }
+
+  makeElement(shape) {
+    const el = document.createElementNS(NS, 'text');
+    this.syncElement(el, shape, { mode: 'normal', zoom: 1 });
+    return el;
+  }
+
+  syncElement(el, shape, _viewState) {
+    const fs  = shape._fontSize   ?? 14;
+    const ff  = shape._fontFamily ?? 'sans-serif';
+    const bw  = shape._boxWidth   ?? 200;
+    const bh  = shape._boxHeight  ?? 100;
+    const lh  = fs * 1.3;
+
+    el.setAttribute('x',           shape.attrs.x);
+    el.setAttribute('y',           shape.attrs.y);
+    el.setAttribute('fill',        shape.style.fill ?? '#000000');
+    el.setAttribute('font-size',   fs);
+    el.setAttribute('font-family', ff);
+    el.setAttribute('clip-path',   `inset(0 0 0 0)`); // overridden per-element by clipPathEl below
+    el.removeAttribute('transform');
+
+    // Clip overflow via SVG clipPath sibling — managed by renderer via data attrs
+    el.setAttribute('data-box-width',  bw);
+    el.setAttribute('data-box-height', bh);
+
+    const lines  = wrapText(shape._text ?? '', fs, ff, bw);
+    const maxLines = Math.floor(bh / lh);
+
+    // Reconcile tspan children
+    while (el.children.length > maxLines) el.removeChild(el.lastChild);
+    lines.slice(0, maxLines).forEach((line, i) => {
+      let tspan = el.children[i];
+      if (!tspan) {
+        tspan = document.createElementNS(NS, 'tspan');
+        el.appendChild(tspan);
+      }
+      tspan.setAttribute('x',  shape.attrs.x);
+      tspan.setAttribute('dy', i === 0 ? fs : lh);
+      tspan.textContent = line;
+    });
+  }
+
+  getBBox(shape) {
+    return {
+      x:      shape.attrs.x,
+      y:      shape.attrs.y,
+      width:  shape._boxWidth  ?? 200,
+      height: shape._boxHeight ?? 100,
+    };
+  }
+
+  hitPart(shape, docX, docY, zoom) {
+    const bb  = this.getBBox(shape);
+    const tol = 4 / zoom;
+    if (docX >= bb.x - tol && docX <= bb.x + bb.width  + tol &&
+        docY >= bb.y - tol && docY <= bb.y + bb.height + tol) {
+      return { part: 'body' };
+    }
+    return null;
+  }
+
+  translate(shape, dx, dy) {
+    shape.attrs.x += dx;
+    shape.attrs.y += dy;
+  }
+
+  scale(shape, sx, sy, ox, oy) {
+    shape.attrs.x    = ox + (shape.attrs.x - ox) * sx;
+    shape.attrs.y    = oy + (shape.attrs.y - oy) * sy;
+    shape._boxWidth  = (shape._boxWidth  ?? 200) * Math.abs(sx);
+    shape._boxHeight = (shape._boxHeight ?? 100) * Math.abs(sy);
+  }
+
+  bakeRotation(shape, _angleDeg, _cx, _cy) {
+    // Area text rotation not currently supported — no-op
+  }
+
+  toSVGString(shape, includeMetadata) {
+    const s   = shape.style;
+    const fs  = shape._fontSize   ?? 14;
+    const ff  = shape._fontFamily ?? 'sans-serif';
+    const bw  = shape._boxWidth   ?? 200;
+    const bh  = shape._boxHeight  ?? 100;
+    const lh  = fs * 1.3;
+    const meta = includeMetadata ? ` data-id="${shape.id}" data-type="text-block" data-box-w="${bw}" data-box-h="${bh}"` : '';
+    const lines  = wrapText(shape._text ?? '', fs, ff, bw);
+    const maxLines = Math.floor(bh / lh);
+    const tspans = lines.slice(0, maxLines).map((line, i) =>
+      `<tspan x="${shape.attrs.x}" dy="${i === 0 ? fs : lh}">${_escapeXML(line)}</tspan>`
+    ).join('');
+    return `<text x="${shape.attrs.x}" y="${shape.attrs.y}" fill="${s.fill ?? '#000'}" font-size="${fs}" font-family="${ff}"${meta}>${tspans}</text>`;
+  }
+
+  fromSVGElement(el, nextId) {
+    if (el.tagName !== 'text') return null;
+    if (el.getAttribute('data-type') !== 'text-block') return null;
+    const tspans = Array.from(el.querySelectorAll('tspan'));
+    const text   = tspans.map(t => t.textContent).join(' ');
+    return {
+      id:          nextId(),
+      type:        'text-block',
+      attrs:       { x: Number(el.getAttribute('x') ?? 0), y: Number(el.getAttribute('y') ?? 0) },
+      style:       { fill: el.getAttribute('fill') ?? '#000000', stroke: 'none', strokeWidth: 1 },
+      _text:       text,
+      _fontSize:   Number(el.getAttribute('font-size')         ?? 14),
+      _fontFamily: el.getAttribute('font-family')              ?? 'sans-serif',
+      _boxWidth:   Number(el.getAttribute('data-box-w')        ?? 200),
+      _boxHeight:  Number(el.getAttribute('data-box-h')        ?? 100),
+    };
+  }
+
+  getWireframePoints(shape) {
+    return [{ x: shape.attrs.x, y: shape.attrs.y }];
+  }
+}
+
+function _escapeXML(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
