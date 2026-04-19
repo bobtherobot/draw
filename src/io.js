@@ -55,6 +55,25 @@ function shapeToSVG(shape, meta) {
   for (const [k, v] of Object.entries(shape.attrs)) a += ` ${k}="${esc(String(v))}"`;
   a += ` fill="${esc(shape.style.fill)}" stroke="${esc(shape.style.stroke)}" stroke-width="${shape.style.strokeWidth}"`;
   if (meta) a += ` data-id="${shape.id}"`;
+
+  if (shape.type === 'text') {
+    a += ` font-size="${shape._fontSize || 16}"`;
+    a += ` font-family="${esc(shape._fontFamily || 'Arial, sans-serif')}"`;
+    a += ` data-text="${esc(shape._text || '')}"`;
+    if (shape._isArea) {
+      a += ` data-is-area="true"`;
+      a += ` data-box-width="${shape._boxWidth || 0}"`;
+      a += ` data-box-height="${shape._boxHeight || 0}"`;
+    }
+    if (shape._scaleX != null && shape._scaleX !== 1) a += ` data-scale-x="${shape._scaleX}"`;
+    if (shape._scaleY != null && shape._scaleY !== 1) a += ` data-scale-y="${shape._scaleY}"`;
+    if (shape._rotation) {
+      a += ` data-rotation="${shape._rotation}"`;
+      a += ` data-rot-cx="${shape._rotCx || 0}"`;
+      a += ` data-rot-cy="${shape._rotCy || 0}"`;
+    }
+  }
+
   return `<${tag}${a}/>`;
 }
 
@@ -128,11 +147,32 @@ function elementToShape(el) {
     return { id, type: 'path', attrs: { d: ellipseToPathD(cx, cy, rx, ry) }, style };
   }
 
+  const skipAttrs = new Set(['fill', 'stroke', 'stroke-width', 'data-id', 'style', 'font-size', 'font-family']);
   const attrs = {};
-  const skipAttrs = new Set(['fill', 'stroke', 'stroke-width', 'data-id', 'style']);
   for (const { name, value } of el.attributes) {
     if (!skipAttrs.has(name) && !name.startsWith('data-')) attrs[name] = isNaN(value) ? value : Number(value);
   }
+
+  if (tag === 'text') {
+    const shape = { id, type: 'text', attrs, style };
+    shape._text       = el.dataset.text       || '';
+    shape._fontSize   = parseFloat(el.getAttribute('font-size') || '16');
+    shape._fontFamily = el.getAttribute('font-family') || 'Arial, sans-serif';
+    shape._isArea     = el.dataset.isArea === 'true';
+    if (shape._isArea) {
+      shape._boxWidth  = parseFloat(el.dataset.boxWidth  || '0');
+      shape._boxHeight = parseFloat(el.dataset.boxHeight || '0');
+    }
+    if (el.dataset.scaleX)    shape._scaleX    = parseFloat(el.dataset.scaleX);
+    if (el.dataset.scaleY)    shape._scaleY    = parseFloat(el.dataset.scaleY);
+    if (el.dataset.rotation) {
+      shape._rotation = parseFloat(el.dataset.rotation);
+      shape._rotCx    = parseFloat(el.dataset.rotCx || '0');
+      shape._rotCy    = parseFloat(el.dataset.rotCy || '0');
+    }
+    return shape;
+  }
+
   return { id, type: tag, attrs, style };
 }
 

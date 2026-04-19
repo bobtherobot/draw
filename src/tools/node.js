@@ -2,6 +2,7 @@ import { state, findShape } from '../state.js';
 import { render, getElement, setOverlayHook } from '../render.js';
 import { execute } from '../history.js';
 import { screenToDoc, isPanning } from '../viewport.js';
+import { initTextEditor, startEditing, isEditing, commit } from './_textedit.js';
 import { buildPathD } from './pen.js';
 import { parsePathD } from '../path-utils.js';
 
@@ -264,6 +265,27 @@ function getShapeIdAt(target) {
   return null;
 }
 
+function openTextEditor(shape, shapeId) {
+  initTextEditor();
+  const oldText = shape._text;
+  startEditing({
+    docX:        shape.attrs.x,
+    docY:        shape.attrs.y,
+    fontSize:    shape._fontSize || 16,
+    fill:        shape.style.fill,
+    boxWidth:    shape._isArea ? shape._boxWidth  : undefined,
+    boxHeight:   shape._isArea ? shape._boxHeight : undefined,
+    initialText: shape._text || '',
+    onCommit({ text }) {
+      if (text === oldText) return;
+      execute({
+        do()   { const f = findShape(shapeId); if (f) { f.shape._text = text;    render(); } },
+        undo() { const f = findShape(shapeId); if (f) { f.shape._text = oldText; render(); } },
+      });
+    },
+  });
+}
+
 function isSmooth(anchor) {
   if (!anchor.hIn || !anchor.hOut) return false;
   const ex = anchor.x - (anchor.hOut.x - anchor.x);
@@ -396,8 +418,27 @@ export function deactivate() {
   dragHandleSide = null; dragSmooth = false; preDragDs.clear();
 }
 
+// Manual double-click tracking for text re-edit
+let _lastClickId   = null;
+let _lastClickTime = 0;
+
 export function onMouseDown(e) {
   if (isPanning() || e.button !== 0) return;
+
+  // Double-click on text shape → open text editor
+  const now   = Date.now();
+  const hitId = getShapeIdAt(e.target);
+  if (hitId && hitId === _lastClickId && now - _lastClickTime < 400) {
+    const f = findShape(hitId);
+    if (f?.shape.type === 'text') {
+      _lastClickId = null; _lastClickTime = 0;
+      if (isEditing()) commit();
+      openTextEditor(f.shape, hitId);
+      return;
+    }
+  }
+  _lastClickId   = hitId || null;
+  _lastClickTime = now;
 
   dragStartDoc = screenToDoc(e.clientX, e.clientY);
   dragged      = false;

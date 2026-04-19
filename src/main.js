@@ -30,7 +30,7 @@ const tools = {
 
 const toolNames = {
   select: 'Selection', node: 'Direct Select', pen: 'Pen',
-  rect: 'Rectangle', ellipse: 'Ellipse', type: 'Type', typearea: 'Area Type',
+  rect: 'Rectangle', ellipse: 'Ellipse', type: 'Text Line', typearea: 'Text Block',
   zoom: 'Zoom', hand: 'Hand',
 };
 

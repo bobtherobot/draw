@@ -69,7 +69,7 @@ export function initTextEditor() {
  *   onCommit    – function({ text, docX, docY, fontSize, boxWidth, boxHeight })
  */
 export function startEditing({ docX, docY, fontSize = 16, fill = '#000000',
-                               boxWidth, boxHeight, onCommit }) {
+                               boxWidth, boxHeight, initialText, onInput, onCommit }) {
   if (!ta) initTextEditor();
   if (isEditing()) commit();       // flush any previous edit first
 
@@ -84,7 +84,7 @@ export function startEditing({ docX, docY, fontSize = 16, fill = '#000000',
   const sx = (docX - state.viewport.x) * z + svgR.left - wrapR.left;
   const sy = (docY - state.viewport.y) * z + svgR.top  - wrapR.top;
 
-  ta.value             = '';
+  ta.value             = initialText || '';
   ta.dataset.docX      = docX;
   ta.dataset.docY      = docY;
   ta.dataset.fontSize  = fontSize;
@@ -107,17 +107,21 @@ export function startEditing({ docX, docY, fontSize = 16, fill = '#000000',
     ta.style.border     = '1px dashed #0066ff';
     ta.style.whiteSpace = 'pre-wrap';
     ta.style.wordBreak  = 'break-word';
-    // Pin scroll to top so overflow exits at the bottom, not the top
-    ta.oninput = () => { ta.scrollTop = 0; };
+    ta.oninput = () => { ta.scrollTop = 0; if (onInput) onInput(ta.value); };
   } else {
     // Point text — auto-expand horizontally and vertically
     ta.style.width      = '4px';
     ta.style.height     = `${fontSize * z * 1.3}px`;
     ta.style.border     = 'none';
-    ta.style.borderLeft = '2px solid #0066ff';
     ta.style.whiteSpace = 'pre';
     ta.style.wordBreak  = 'normal';
-    ta.oninput = autoResize;
+    ta.oninput = () => { autoResize(); if (onInput) onInput(ta.value); };
+  }
+
+  // If pre-filled with existing text, size the textarea immediately
+  if (ta.value) {
+    if (boxWidth !== undefined) { ta.scrollTop = 0; }
+    else autoResize();
   }
 
   // Defer focus past the mousedown event cycle so nothing steals it

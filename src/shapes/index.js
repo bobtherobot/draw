@@ -78,6 +78,22 @@ function syncTextElement(el, shape) {
   el.removeAttribute('x');
   el.removeAttribute('y');
 
+  const scaleX   = shape._scaleX   || 1;
+  const scaleY   = shape._scaleY   || 1;
+  const rotation = shape._rotation || 0;
+  const rotCx    = shape._rotCx   ?? x;
+  const rotCy    = shape._rotCy   ?? (y + fontSize);
+
+  if (scaleX !== 1 || scaleY !== 1 || rotation !== 0) {
+    let t = '';
+    if (rotation !== 0) t += `rotate(${rotation},${rotCx},${rotCy}) `;
+    if (scaleX !== 1 || scaleY !== 1)
+      t += `translate(${x * (1 - scaleX)},${y * (1 - scaleY)}) scale(${scaleX},${scaleY})`;
+    el.setAttribute('transform', t.trim());
+  } else {
+    el.removeAttribute('transform');
+  }
+
   const lines = (shape._isArea && shape._boxWidth)
     ? wrapText(text, shape._boxWidth, fontSize, fontFamily)
     : text.split('\n');
@@ -103,6 +119,16 @@ let _ctx2d = null;
 function getCtx() {
   if (!_ctx2d) _ctx2d = Object.assign(document.createElement('canvas'), { width: 1, height: 1 }).getContext('2d');
   return _ctx2d;
+}
+
+export function measureTextWidth(text, fontSize, fontFamily = 'Arial, sans-serif') {
+  if (!text) return 0;
+  const ctx = getCtx();
+  ctx.font = `${fontSize}px ${fontFamily}`;
+  let maxW = 0;
+  for (const line of text.split('\n'))
+    maxW = Math.max(maxW, ctx.measureText(line).width);
+  return maxW;
 }
 
 const _wrapCache = new Map();
@@ -135,9 +161,62 @@ function wrapText(text, maxWidth, fontSize, fontFamily) {
 }
 
 export function getBBox(shape) {
+  if (shape.type === 'text') return getTextBBox(shape);
   const el = document.querySelector(`[data-shape-id="${shape.id}"]`);
   if (!el) return null;
   try { return el.getBBox(); } catch { return null; }
+}
+
+function rotatedAABB(rect, angleDeg, cx, cy) {
+  const corners = [
+    { x: rect.x,              y: rect.y               },
+    { x: rect.x + rect.width, y: rect.y               },
+    { x: rect.x + rect.width, y: rect.y + rect.height },
+    { x: rect.x,              y: rect.y + rect.height },
+  ];
+  const pts  = corners.map(p => rotatePoint(p.x, p.y, angleDeg, cx, cy));
+  const xs   = pts.map(p => p.x);
+  const ys   = pts.map(p => p.y);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+}
+
+function getTextBBox(shape) {
+  const x          = +(shape.attrs.x  ?? 0);
+  const y          = +(shape.attrs.y  ?? 0);
+  const fontSize   = +(shape._fontSize   ?? 16);
+  const fontFamily =   shape._fontFamily ?? 'Arial, sans-serif';
+  const scaleX     = Math.abs(shape._scaleX || 1);
+
+  const scaleY     = Math.abs(shape._scaleY || 1);
+  let bbX = x, bbY, width, height;
+
+  if (shape._isArea) {
+    // Area text: bbox is exactly the defined box.
+    bbY    = y;
+    width  = (shape._boxWidth  ?? 0) * scaleX;
+    height =  shape._boxHeight ?? 0;
+  } else {
+    const lines = (shape._text ?? '').split('\n');
+    const lineH  = fontSize * 1.3;
+    const ctx    = getCtx();
+    ctx.font     = `${fontSize}px ${fontFamily}`;
+
+    let maxW = 0;
+    for (const line of lines) maxW = Math.max(maxW, ctx.measureText(line).width);
+    width = maxW * scaleX;
+
+    // Logical line-height bounds scaled by _scaleY (geometric vertical scale).
+    bbY    = y;
+    height = lineH * lines.length * scaleY;
+  }
+
+  const rotation = shape._rotation || 0;
+  if (!rotation) return { x: bbX, y: bbY, width, height };
+  const rotCx = shape._rotCx ?? x;
+  const rotCy = shape._rotCy ?? (y + fontSize);
+  return rotatedAABB({ x: bbX, y: bbY, width, height }, rotation, rotCx, rotCy);
 }
 
 // Scale a shape by (sx, sy) around origin (ox, oy) in document units
@@ -148,6 +227,10 @@ export function scaleShape(shape, sx, sy, ox, oy) {
   } else if (shape.type === 'text') {
     a.x = ox + (+(a.x || 0) - ox) * sx;
     a.y = oy + (+(a.y || 0) - oy) * sy;
+    if (!shape._isArea) {
+      shape._scaleX = (shape._scaleX || 1) * sx;
+      shape._scaleY = (shape._scaleY || 1) * sy;
+    }
     if (shape._isArea) {
       shape._boxWidth  = (shape._boxWidth  || 0) * sx;
       shape._boxHeight = (shape._boxHeight || 0) * sy;
@@ -218,18 +301,19 @@ function rotatePathD(d, angleDeg, cx, cy) {
   });
 }
 
-// Bake a rotation into a shape's actual coordinates (removes SVG transform dependency)
+// Bake a rotation into a shape's coordinates. For paths: rotates all coords.
+// For text: stores rotation as persistent model fields (glyphs rotate via syncTextElement transform).
 export function bakeRotation(shape, angleDeg, cx, cy) {
   if (shape.type === 'path') {
     shape.attrs.d = rotatePathD(shape.attrs.d, angleDeg, cx, cy);
+    shape._rotation = undefined;
+    shape._rotCx    = undefined;
+    shape._rotCy    = undefined;
   } else if (shape.type === 'text') {
-    const p = rotatePoint(+(shape.attrs.x || 0), +(shape.attrs.y || 0), angleDeg, cx, cy);
-    shape.attrs.x = p.x;
-    shape.attrs.y = p.y;
+    shape._rotation = (shape._rotation || 0) + angleDeg;
+    shape._rotCx    = cx;
+    shape._rotCy    = cy;
   }
-  shape._rotation = undefined;
-  shape._rotCx    = undefined;
-  shape._rotCy    = undefined;
 }
 
 // Translate a shape by (dx, dy) in document units

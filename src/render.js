@@ -1,6 +1,7 @@
 import { state, findShape } from './state.js';
-import { makeElement, syncElement } from './shapes/index.js';
+import { makeElement, syncElement, getBBox, measureTextWidth } from './shapes/index.js';
 import { parsePathD } from './path-utils.js';
+import { isEditing } from './tools/_textedit.js';
 
 const NS  = 'http://www.w3.org/2000/svg';
 const elMap     = new Map(); // shapeId → SVGElement
@@ -113,54 +114,134 @@ export function renderTextGuides() {
       if (shape.type !== 'text') continue;
       activeIds.add(shape.id);
 
-      const x        = +(shape.attrs.x ?? 0);
-      const y        = +(shape.attrs.y ?? 0);
-      const fontSize = +(shape._fontSize ?? 16);
-      const color    = layer.locked ? '#999' : '#5577aa';
+      const x          = +(shape.attrs.x ?? 0);
+      const y          = +(shape.attrs.y ?? 0);
+      const fontSize   = +(shape._fontSize ?? 16);
+      const fontFamily = shape._fontFamily ?? 'Arial, sans-serif';
+      const scaleXG    = shape._scaleX || 1;
+      const scaleYG    = shape._scaleY || 1;
+      const color      = layer.locked ? '#999' : '#5577aa';
+      // Visual baseline after transform: y + (fontSize + i*lineH) * scaleY
+      const baselineY  = y + fontSize * scaleYG;
 
-      // Reuse existing guide elements or create them
       let g = guideElMap.get(shape.id);
       if (!g) {
-        const sq   = document.createElementNS(NS, 'rect');
-        const line = document.createElementNS(NS, 'line');
-        sq.dataset.shapeId   = shape.id;
-        line.dataset.shapeId = shape.id;
-        guideG.appendChild(sq);
-        guideG.appendChild(line);
-        g = { sq, line };
+        const nodeBox = document.createElementNS(NS, 'rect');
+        nodeBox.dataset.shapeId = shape.id;
+        guideG.appendChild(nodeBox);
+        g = { baseLines: [], nodeBox };
         guideElMap.set(shape.id, g);
       }
 
-      const { sq, line } = g;
-      sq.setAttribute('x',            x - hs);
-      sq.setAttribute('y',            y - hs);
-      sq.setAttribute('width',        hs * 2);
-      sq.setAttribute('height',       hs * 2);
-      sq.setAttribute('fill',         'white');
-      sq.setAttribute('stroke',       color);
-      sq.setAttribute('stroke-width', sw);
+      const { nodeBox } = g;
 
       if (!shape._isArea) {
-        const lineLen = 14 / z;
-        line.setAttribute('x1',           x);
-        line.setAttribute('y1',           y + fontSize);
-        line.setAttribute('x2',           x + lineLen);
-        line.setAttribute('y2',           y + fontSize);
-        line.setAttribute('stroke',       color);
-        line.setAttribute('stroke-width', sw);
-        line.style.display = '';
+        const lines = (shape._text || '').split('\n');
+        const lineH = fontSize * 1.3;
+
+        while (g.baseLines.length < lines.length) {
+          const bl = document.createElementNS(NS, 'line');
+          bl.dataset.shapeId = shape.id;
+          guideG.insertBefore(bl, nodeBox);
+          g.baseLines.push(bl);
+        }
+        for (let i = lines.length; i < g.baseLines.length; i++)
+          g.baseLines[i].style.display = 'none';
+
+        for (let i = 0; i < lines.length; i++) {
+          const bY    = y + (fontSize + i * lineH) * scaleYG;
+          const textW = Math.max(measureTextWidth(lines[i], fontSize, fontFamily), 20) * Math.abs(scaleXG);
+          const bl    = g.baseLines[i];
+          bl.setAttribute('x1',           x);
+          bl.setAttribute('y1',           bY);
+          bl.setAttribute('x2',           x + textW);
+          bl.setAttribute('y2',           bY);
+          bl.setAttribute('stroke',       color);
+          bl.setAttribute('stroke-width', sw);
+          bl.style.display = '';
+        }
       } else {
-        line.style.display = 'none';
+        for (const bl of g.baseLines) bl.style.display = 'none';
       }
+
+      // Node box sits on the first-line baseline at the alignment anchor (left)
+      nodeBox.setAttribute('x',            x - hs);
+      nodeBox.setAttribute('y',            baselineY - hs);
+      nodeBox.setAttribute('width',        hs * 2);
+      nodeBox.setAttribute('height',       hs * 2);
+      nodeBox.setAttribute('fill',         'white');
+      nodeBox.setAttribute('stroke',       color);
+      nodeBox.setAttribute('stroke-width', sw);
     }
   }
 
-  // Remove guide elements for text shapes that no longer exist
   for (const [id, g] of guideElMap) {
     if (!activeIds.has(id)) {
-      g.sq.remove();
-      g.line.remove();
+      for (const bl of g.baseLines) bl.remove();
+      g.nodeBox.remove();
       guideElMap.delete(id);
+    }
+  }
+}
+
+// During scale drag: transform guide positions by the same matrix applied to shape elements.
+export function scaleTextGuidesForDrag(selectedIds, sx, sy, ox, oy) {
+  const z  = state.viewport.zoom;
+  const sw = 1 / z;
+  const hs = 3.5 / z;
+
+  for (const [id, g] of guideElMap) {
+    if (!selectedIds.has(id)) continue;
+    const found = findShape(id);
+    if (!found) continue;
+    const shape      = found.shape;
+    const x          = +(shape.attrs.x ?? 0);
+    const y          = +(shape.attrs.y ?? 0);
+    const fontSize   = +(shape._fontSize ?? 16);
+    const fontFamily = shape._fontFamily ?? 'Arial, sans-serif';
+    // Text shapes are model-updated during scale drag (scaleShape already applied),
+    // so read their position directly without re-applying the drag scale.
+    if (shape.type === 'text') {
+      // Model already updated by scaleShape; compute visual positions using _scaleX/_scaleY.
+      const scaleX = shape._scaleX || 1;
+      const scaleY = shape._scaleY || 1;
+      const firstBY = y + fontSize * scaleY;
+
+      g.nodeBox.setAttribute('x',            x - hs);
+      g.nodeBox.setAttribute('y',            firstBY - hs);
+      g.nodeBox.setAttribute('width',        hs * 2);
+      g.nodeBox.setAttribute('height',       hs * 2);
+      g.nodeBox.setAttribute('stroke-width', sw);
+
+      if (!shape._isArea) {
+        const lines = (shape._text || '').split('\n');
+        const lineH = fontSize * 1.3;
+        for (let i = 0; i < g.baseLines.length; i++) {
+          if (i >= lines.length) { g.baseLines[i].style.display = 'none'; continue; }
+          const bY    = y + (fontSize + i * lineH) * scaleY;
+          const textW = Math.max(measureTextWidth(lines[i], fontSize, fontFamily), 20) * Math.abs(scaleX);
+          const bl    = g.baseLines[i];
+          bl.setAttribute('x1',           x);
+          bl.setAttribute('y1',           bY);
+          bl.setAttribute('x2',           x + textW);
+          bl.setAttribute('y2',           bY);
+          bl.setAttribute('stroke-width', sw);
+          bl.style.display = '';
+        }
+      } else {
+        for (const bl of g.baseLines) bl.style.display = 'none';
+      }
+    } else {
+      const tx = (px) => ox + (px - ox) * sx;
+      const ty = (py) => oy + (py - oy) * sy;
+      const anchorX = tx(x);
+      const firstBY = ty(y + fontSize);
+
+      g.nodeBox.setAttribute('x',            anchorX - hs);
+      g.nodeBox.setAttribute('y',            firstBY - hs);
+      g.nodeBox.setAttribute('width',        hs * 2);
+      g.nodeBox.setAttribute('height',       hs * 2);
+      g.nodeBox.setAttribute('stroke-width', sw);
     }
   }
 }
@@ -173,27 +254,42 @@ export function offsetTextGuidesForDrag(selectedIds, dx, dy) {
   for (const [id, g] of guideElMap) {
     const found = findShape(id);
     if (!found) continue;
-    const shape = found.shape;
-    const ox = selectedIds.has(id) ? dx : 0;
-    const oy = selectedIds.has(id) ? dy : 0;
-    const x  = +(shape.attrs.x ?? 0) + ox;
-    const y  = +(shape.attrs.y ?? 0) + oy;
-    const fontSize = +(shape._fontSize ?? 16);
-    g.sq.setAttribute('x',            x - hs);
-    g.sq.setAttribute('y',            y - hs);
-    g.sq.setAttribute('width',        hs * 2);
-    g.sq.setAttribute('height',       hs * 2);
-    g.sq.setAttribute('stroke-width', sw);
+    const shape      = found.shape;
+    // Text shapes use model-update during move drag (attrs already include dx/dy),
+    // so don't add an extra offset — paths use the transform approach and need it.
+    const ox = (selectedIds.has(id) && shape.type !== 'text') ? dx : 0;
+    const oy = (selectedIds.has(id) && shape.type !== 'text') ? dy : 0;
+    const x          = +(shape.attrs.x ?? 0) + ox;
+    const y          = +(shape.attrs.y ?? 0) + oy;
+    const fontSize   = +(shape._fontSize ?? 16);
+    const fontFamily = shape._fontFamily ?? 'Arial, sans-serif';
+    const scaleX     = shape._scaleX || 1;
+    const scaleY     = shape._scaleY || 1;
+    const baselineY  = y + fontSize * scaleY;
+
+    g.nodeBox.setAttribute('x',            x - hs);
+    g.nodeBox.setAttribute('y',            baselineY - hs);
+    g.nodeBox.setAttribute('width',        hs * 2);
+    g.nodeBox.setAttribute('height',       hs * 2);
+    g.nodeBox.setAttribute('stroke-width', sw);
+
     if (!shape._isArea) {
-      const lineLen = 14 / z;
-      g.line.setAttribute('x1',           x);
-      g.line.setAttribute('y1',           y + fontSize);
-      g.line.setAttribute('x2',           x + lineLen);
-      g.line.setAttribute('y2',           y + fontSize);
-      g.line.setAttribute('stroke-width', sw);
-      g.line.style.display = '';
+      const lines = (shape._text || '').split('\n');
+      const lineH = fontSize * 1.3;
+      for (let i = 0; i < g.baseLines.length; i++) {
+        if (i >= lines.length) { g.baseLines[i].style.display = 'none'; continue; }
+        const bY    = y + (fontSize + i * lineH) * scaleY;
+        const textW = Math.max(measureTextWidth(lines[i], fontSize, fontFamily), 20) * Math.abs(scaleX);
+        const bl    = g.baseLines[i];
+        bl.setAttribute('x1',           x);
+        bl.setAttribute('y1',           bY);
+        bl.setAttribute('x2',           x + textW);
+        bl.setAttribute('y2',           bY);
+        bl.setAttribute('stroke-width', sw);
+        bl.style.display = '';
+      }
     } else {
-      g.line.style.display = 'none';
+      for (const bl of g.baseLines) bl.style.display = 'none';
     }
   }
 }
@@ -204,25 +300,18 @@ export function renderSelection() {
   ov.innerHTML  = '';
   ovh.innerHTML = '';
 
-  // Node editing replaces the selection box with a wireframe + anchor overlay.
+  // Node editing or text editing replaces/hides the selection box.
   if (state.nodeEditingActive) return;
+  if (isEditing()) return;
 
   if (state.selection.size === 0) return;
 
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   for (const id of state.selection) {
-    let bb;
-    // Area text: use stored box dimensions so selection never grows with overflow text
     const found = findShape(id);
-    if (found?.shape.type === 'text' && found.shape._isArea) {
-      const s = found.shape;
-      bb = { x: +(s.attrs.x ?? 0), y: +(s.attrs.y ?? 0), width: s._boxWidth ?? 0, height: s._boxHeight ?? 0 };
-    } else {
-      const el = elMap.get(id);
-      if (!el) continue;
-      try { bb = el.getBBox(); } catch { continue; }
-      if (!bb || (bb.width === 0 && bb.height === 0)) continue;
-    }
+    if (!found) continue;
+    const bb = getBBox(found.shape);
+    if (!bb || (bb.width === 0 && bb.height === 0)) continue;
     minX = Math.min(minX, bb.x);
     minY = Math.min(minY, bb.y);
     maxX = Math.max(maxX, bb.x + bb.width);
