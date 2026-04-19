@@ -1,0 +1,82 @@
+// Vertical tool strip on the left edge
+.toolbar {
+  .flex-col();
+  flex: 0 0 44px;
+  width: 44px;
+  background: var(--theme-bg);
+  border-right: 1px solid var(--theme-border);
+  padding: @sp-1;
+  gap: 2px;
+  overflow: hidden;
+  z-index: @z-toolbar;
+
+  // Primary tool button
+  &__btn {
+    .icon-btn();
+    width: 32px;
+    height: 32px;
+    border-radius: @radius-sm;
+    position: relative;
+    flex-shrink: 0;
+
+    // Active tool indicator — left accent bar
+    &.active::before {
+      content: '';
+      position: absolute;
+      left: -@sp-1;
+      top: 4px;
+      bottom: 4px;
+      width: 2px;
+      border-radius: 1px;
+      background: var(--theme-accent);
+    }
+  }
+
+  // Separator between tool groups
+  &__separator {
+    .divider-h();
+    margin: @sp-1 @sp-2;
+  }
+
+  // Sub-feature flyout (appears below active tool button)
+  &__sub-features {
+    .flex-col();
+    gap: 2px;
+    padding: 2px 0 @sp-1;
+  }
+
+  &__sub-btn {
+    .icon-btn();
+    width: 28px;
+    height: 28px;
+    align-self: center;
+    border-radius: @radius-sm;
+    color: var(--theme-fg-dim);
+
+    &.active {
+      background: var(--theme-bg-active);
+      color: var(--theme-accent);
+    }
+  }
+
+  // Keyboard shortcut badge shown on hover
+  &__shortcut {
+    display: none;
+    position: absolute;
+    left: calc(100% + 8px);
+    top: 50%;
+    transform: translateY(-50%);
+    background: var(--theme-bg-raised);
+    border: 1px solid var(--theme-border);
+    border-radius: @radius-sm;
+    padding: 2px @sp-2;
+    font-size: @font-size-sm;
+    color: var(--theme-fg);
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: @z-tooltip;
+    box-shadow: 0 2px 8px var(--theme-shadow);
+  }
+
+  &__btn:hover &__shortcut { display: block; }
+}

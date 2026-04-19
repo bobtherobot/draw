@@ -1,0 +1,62 @@
+// Floating / dockable command bar (view mode buttons)
+.commandbar {
+  position: absolute;
+  top: @sp-2;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: @z-commandbar;
+
+  .flex-row();
+  gap: 2px;
+  padding: 3px;
+  background: var(--theme-bg-raised);
+  border: 1px solid var(--theme-border);
+  border-radius: @radius-lg;
+  box-shadow: 0 2px 12px var(--theme-shadow);
+  user-select: none;
+
+  // Drag handle (shown when floating)
+  &__handle {
+    .flex-center();
+    width: 20px;
+    cursor: grab;
+    color: var(--theme-fg-dim);
+
+    svg { width: 12px; height: 12px; }
+
+    &:active { cursor: grabbing; }
+  }
+
+  // View mode button
+  &__btn {
+    .icon-btn();
+    width: 28px;
+    height: 28px;
+    border-radius: @radius-sm;
+    gap: @sp-1;
+    padding: 0 6px;
+    width: auto;
+    font-size: @font-size-sm;
+    color: var(--theme-fg-dim);
+
+    &.active {
+      background: var(--theme-bg-active);
+      color: var(--theme-fg);
+    }
+  }
+
+  &__separator { .divider-v(); }
+
+  // Docked state — anchored to top center, no drag handle, no shadow
+  &.docked {
+    position: fixed;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    border-top: none;
+    border-radius: 0 0 @radius-lg @radius-lg;
+    box-shadow: none;
+
+    .commandbar__handle { display: none; }
+  }
+}

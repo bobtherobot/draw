@@ -1,0 +1,94 @@
+// Layers panel — layer groups and shape items
+.layers-panel {
+  .flex-col();
+  flex: 1 1 auto;
+  min-height: 0;
+
+  // Layer group header row
+  &__layer {
+    .flex-row();
+    padding: 3px @sp-2;
+    gap: @sp-1;
+    min-height: 28px;
+    cursor: default;
+    user-select: none;
+
+    &:hover { background: var(--theme-bg-hover); }
+    &.active { background: var(--theme-bg-active); }
+  }
+
+  &__expand-btn {
+    .icon-btn();
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+
+    svg { width: 10px; height: 10px; }
+  }
+
+  &__layer-name {
+    flex: 1 1 auto;
+    font-size: @font-size-sm;
+    color: var(--theme-fg);
+    .text-ellipsis();
+  }
+
+  &__visibility-btn,
+  &__lock-btn {
+    .icon-btn();
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    opacity: 0;
+    transition: opacity @transition-fast;
+
+    svg { width: 12px; height: 12px; }
+  }
+
+  &__layer:hover &__visibility-btn,
+  &__layer:hover &__lock-btn,
+  &__layer.active &__visibility-btn,
+  &__layer.active &__lock-btn {
+    opacity: 1;
+  }
+
+  // Shape items within an expanded layer
+  &__shapes {
+    .flex-col();
+  }
+
+  &__shape {
+    .flex-row();
+    padding: 2px @sp-2 2px @sp-6;
+    gap: @sp-1;
+    min-height: 24px;
+    cursor: default;
+    user-select: none;
+
+    &:hover { background: var(--theme-bg-hover); }
+    &.selected { background: var(--theme-selection); }
+  }
+
+  &__shape-icon {
+    flex-shrink: 0;
+    width: 14px;
+    height: 14px;
+    color: var(--theme-fg-dim);
+    svg { width: 14px; height: 14px; fill: currentColor; }
+  }
+
+  &__shape-name {
+    flex: 1 1 auto;
+    font-size: @font-size-sm;
+    color: var(--theme-fg);
+    .text-ellipsis();
+  }
+
+  // Empty state
+  &__empty {
+    padding: @sp-4 @sp-2;
+    text-align: center;
+    font-size: @font-size-sm;
+    color: var(--theme-fg-dim);
+  }
+}

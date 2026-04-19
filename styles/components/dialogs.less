@@ -1,0 +1,96 @@
+// Modal dialogs (document setup, etc.)
+
+// Backdrop
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: @z-dialog;
+  .flex-center();
+}
+
+.dialog {
+  .panel-chrome();
+  min-width: 320px;
+  max-width: 480px;
+  width: 100%;
+  box-shadow: 0 8px 32px var(--theme-shadow);
+  overflow: hidden;
+
+  &__header {
+    .flex-row();
+    justify-content: space-between;
+    padding: @sp-3 @sp-4;
+    border-bottom: 1px solid var(--theme-border);
+    flex-shrink: 0;
+  }
+
+  &__title {
+    font-size: @font-size-base;
+    font-weight: 600;
+    color: var(--theme-fg);
+  }
+
+  &__close {
+    .icon-btn();
+    width: 24px;
+    height: 24px;
+  }
+
+  &__body {
+    padding: @sp-4;
+    .flex-col();
+    gap: @sp-3;
+  }
+
+  &__footer {
+    .flex-row();
+    justify-content: flex-end;
+    gap: @sp-2;
+    padding: @sp-3 @sp-4;
+    border-top: 1px solid var(--theme-border);
+  }
+
+  // Form field row inside dialog
+  &__field {
+    .flex-row();
+    gap: @sp-3;
+    align-items: center;
+
+    label {
+      flex: 0 0 100px;
+      font-size: @font-size-sm;
+      color: var(--theme-fg-dim);
+    }
+  }
+
+  // Dialog buttons
+  &__btn {
+    .flex-center();
+    height: 30px;
+    padding: 0 @sp-4;
+    border-radius: @radius-sm;
+    font-size: @font-size-sm;
+    cursor: pointer;
+    transition: background @transition-fast;
+
+    &--primary {
+      background: var(--theme-accent);
+      color: var(--theme-accent-fg);
+      &:hover { background: var(--theme-accent-hover); }
+    }
+
+    &--secondary {
+      background: var(--theme-bg-hover);
+      color: var(--theme-fg);
+      &:hover { background: var(--theme-bg-active); }
+    }
+  }
+
+  // Text input inside dialog
+  input[type="text"],
+  input[type="number"] {
+    .input-field();
+    flex: 1 1 auto;
+  }
+}

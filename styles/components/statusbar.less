@@ -1,0 +1,35 @@
+// Bottom status bar — cursor coordinates, zoom, active tool
+.statusbar {
+  position: absolute;
+  bottom: 0;
+  left: 44px; // offset past toolbar
+  right: 220px; // offset before panels
+  height: 24px;
+  .flex-row();
+  gap: @sp-4;
+  padding: 0 @sp-3;
+  background: var(--theme-bg);
+  border-top: 1px solid var(--theme-border);
+  z-index: @z-panels;
+  flex-shrink: 0;
+  pointer-events: none;
+
+  &__item {
+    .flex-row();
+    gap: @sp-1;
+    font-size: @font-size-sm;
+    color: var(--theme-fg-dim);
+    font-family: @font-mono;
+    white-space: nowrap;
+  }
+
+  &__label {
+    color: var(--theme-fg-dim);
+    opacity: 0.6;
+  }
+
+  &__value {
+    color: var(--theme-fg);
+    min-width: 44px;
+  }
+}

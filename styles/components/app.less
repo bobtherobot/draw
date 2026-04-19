@@ -1,0 +1,34 @@
+// Top-level app layout — toolbar | canvas | panels
+.app, #app {
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--theme-pasteboard);
+  position: relative;
+}
+
+.canvas-wrap {
+  position: relative;
+  flex: 1 1 auto;
+  overflow: hidden;
+  background: var(--theme-pasteboard);
+
+  #canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+}
+
+.panels {
+  .flex-col();
+  flex: 0 0 220px;
+  width: 220px;
+  background: var(--theme-bg);
+  border-left: 1px solid var(--theme-border);
+  overflow: hidden;
+}

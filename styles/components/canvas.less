@@ -1,0 +1,127 @@
+// Canvas wrapper and cursor management
+.canvas-wrap {
+  position: relative;
+  flex: 1 1 auto;
+  overflow: hidden;
+  background: var(--theme-pasteboard);
+
+  // Tool cursor classes applied to canvas-wrap by controls/toolbar.js
+  &.tool-select    { cursor: var(--cursor-default, default); }
+  &.tool-node      { cursor: var(--cursor-default, default); }
+  &.tool-pen       { cursor: var(--cursor-pen, crosshair); }
+  &.tool-rect      { cursor: var(--cursor-crosshair, crosshair); }
+  &.tool-ellipse   { cursor: var(--cursor-crosshair, crosshair); }
+  &.tool-type      { cursor: var(--cursor-text, text); }
+  &.tool-type-area { cursor: var(--cursor-crosshair, crosshair); }
+  &.tool-zoom      { cursor: var(--cursor-zoom-in, zoom-in); }
+  &.tool-hand      { cursor: var(--cursor-grab, grab); }
+
+  // Modifier overrides (set via JS adding modifier classes)
+  &.mod-space      { cursor: var(--cursor-grab, grab); }
+  &.mod-space.grabbing { cursor: var(--cursor-grabbing, grabbing); }
+}
+
+// Artboard (white page)
+.artboard-rect {
+  fill:         var(--theme-artboard-bg);
+  stroke:       none;
+  filter:       drop-shadow(0 2px 12px var(--theme-shadow));
+}
+
+// Selection overlay elements (drawn by render/selection.js)
+.selection-box {
+  fill:             var(--theme-selection);
+  stroke:           var(--theme-accent);
+  stroke-width:     1px;
+  stroke-dasharray: 4 3;
+  vector-effect:    non-scaling-stroke;
+  pointer-events:   none;
+}
+
+.selection-handle {
+  fill:           var(--theme-bg-raised);
+  stroke:         var(--theme-accent);
+  stroke-width:   1.5px;
+  vector-effect:  non-scaling-stroke;
+  cursor:         nw-resize;
+
+  &[data-handle="handle-n"], &[data-handle="handle-s"]  { cursor: n-resize; }
+  &[data-handle="handle-e"], &[data-handle="handle-w"]  { cursor: e-resize; }
+  &[data-handle="handle-nw"],&[data-handle="handle-se"] { cursor: nw-resize; }
+  &[data-handle="handle-ne"],&[data-handle="handle-sw"] { cursor: ne-resize; }
+}
+
+.selection-rotate-handle {
+  fill:           var(--theme-accent);
+  stroke:         none;
+  cursor:         var(--cursor-default, default);
+  vector-effect:  non-scaling-stroke;
+}
+
+.selection-rotate-stem {
+  stroke:         var(--theme-accent);
+  stroke-width:   1px;
+  vector-effect:  non-scaling-stroke;
+  pointer-events: none;
+}
+
+// Text guides
+.text-guide-sq {
+  fill:             none;
+  stroke:           var(--theme-accent);
+  stroke-width:     1px;
+  vector-effect:    non-scaling-stroke;
+}
+
+.text-guide-line {
+  stroke:           var(--theme-accent);
+  stroke-width:     1px;
+  stroke-dasharray: 3 2;
+  vector-effect:    non-scaling-stroke;
+  pointer-events:   none;
+}
+
+// Wireframe mode node dots
+.wireframe-node {
+  fill:   #f60;
+  stroke: none;
+}
+
+// Pen tool preview path
+.pen-preview {
+  fill:           none;
+  stroke:         var(--theme-accent);
+  stroke-width:   1px;
+  stroke-dasharray: 4 3;
+  vector-effect:  non-scaling-stroke;
+  pointer-events: none;
+}
+
+.pen-handle-line {
+  stroke:         var(--theme-fg-dim);
+  stroke-width:   1px;
+  vector-effect:  non-scaling-stroke;
+  pointer-events: none;
+}
+
+.pen-anchor {
+  fill:   var(--theme-bg-raised);
+  stroke: var(--theme-accent);
+  stroke-width: 1.5px;
+  vector-effect: non-scaling-stroke;
+}
+
+.pen-handle-dot {
+  fill:   var(--theme-accent);
+  stroke: none;
+}
+
+// Rubber-band selection rect
+.rubber-band {
+  fill:             var(--theme-selection);
+  stroke:           var(--theme-accent);
+  stroke-width:     1px;
+  stroke-dasharray: 4 3;
+  vector-effect:    non-scaling-stroke;
+  pointer-events:   none;
+}
