@@ -38,8 +38,8 @@ Built-ins register themselves on import in `src/objects/index.js`, `src/tools/in
 `render()` is the single entry point — call it after any state mutation:
 
 1. `activeMode.beforeRender()`
-2. `renderArtboard()` — white page rect in `#artboard-layer`
-3. `renderLayers()` — reconciles `elMap` (shapeId → SVGElement); calls `ObjectType.syncElement` per shape — **no `type` branches**
+2. `_renderArtboard()` — white page rects + per-artboard `<clipPath>` in `#artboard-layer` / `<defs>`
+3. `_renderTree()` — builds item tree depth-first, reconciles `elMap`/`containerElMap`; calls `ObjectType.syncElement` per display item — **no `type` branches**
 4. `renderTextGuides()` — anchor squares + baseline lines for text shapes
 5. `renderSelection()` — dashed bounding box + scale/rotate handles in the `selection` overlay layer
 6. `activeMode.afterRender()`
@@ -49,9 +49,11 @@ Built-ins register themselves on import in `src/objects/index.js`, `src/tools/in
 
 ```
 <svg id="canvas">
-  <g id="artboard-layer">   ← white page background
+  <defs>                     ← per-artboard clipPath elements (managed by renderer)
+  <g id="artboard-layer">   ← white artboard background rects
   <g id="doc-root">
-    <g id="layer-{id}">     ← one per layer (reconciled by renderLayers)
+    <g id="doc-layer">       ← render root for all items (reconciled by _renderTree)
+      <g id="item-{id}">     ← container <g> per group/artboard item
     <g id="text-guides">    ← anchor squares + baseline lines
   <g id="overlay-hit">      ← future: hit-test helpers
   <g id="overlay">          ← selection handles + tool previews (OverlayManager)
@@ -74,14 +76,39 @@ const line = this._layer.borrow('line');    // pool-backed SVG element, already 
 line.setAttribute('x1', ...);
 ```
 
-### Shape model
+### Item model (unified flat tree)
 
-Shapes are plain JS POJOs: `{ id, type, attrs, style }`.
+All items live in `state.items` (flat array). Tree structure is encoded via `parentId` — null = root.
 
-- `type` — `'path'`, `'text-line'`, `'text-block'`, `'group'`
-- `attrs` — SVG presentation attributes (`d` for paths; `x`, `y` for text)
-- `style` — `{ fill, stroke, strokeWidth }`
-- Text extras: `_text`, `_fontSize`, `_fontFamily`, `_boxWidth` (text-block), `_boxHeight` (text-block)
+```js
+{
+  id:       'item3',          // nextId('item') for groups/artboards; nextId(type) for display items
+  type:     'artboard'        // pure container, owns dimensions
+           | 'group'          // pure container, no geometry
+           | 'path'           // display item, may have children
+           | 'text-line'
+           | 'text-block',
+  name:     'Layer 1',        // optional; auto-derived for display items if absent
+  parentId: null | 'item1',   // null = root level
+  visible:  true,
+  locked:   false,
+  expanded: true,
+  // --- artboard only ---
+  attrs:  { x, y, width, height },
+  // --- display items only ---
+  attrs:  { d: '...' },       // SVG presentation attributes
+  style:  { fill, stroke, strokeWidth },
+  // text extras: _text, _fontSize, _fontFamily, _boxWidth, _boxHeight (text-block)
+}
+```
+
+Key state helpers (`src/core/state.js`):
+- `findItem(id)` — find any item by id
+- `allDisplayItems()` — all non-group, non-artboard items
+- `getActiveItem()` — active container (for new shapes to land in)
+- `getActiveArtboard()` — first artboard item
+- `childrenOf(parentId)` — direct children
+- `sanitizeItems(items)` — promote orphans to root after any delete
 
 **SVG `transform` is never persisted.** Scale/rotate bake into `attrs` coordinates via `ObjectType.scale()` / `ObjectType.bakeRotation()`. `syncElement` must always call `el.removeAttribute('transform')`.
 
@@ -147,7 +174,7 @@ Cursors (in `icons/cursors/`) are an exception — they use hardcoded black sinc
 |---|---|
 | `src/main.js` | Entry point — imports registrations, inits controls, calls render |
 | `src/app.js` | Builds #app DOM; `applyTheme()` |
-| `src/core/state.js` | Global state + `nextId()`, `findShape()`, `allShapes()` |
+| `src/core/state.js` | Global state + `nextId()`, `findItem()`, `allDisplayItems()`, `getActiveArtboard()`, `sanitizeItems()` |
 | `src/core/registry.js` | Extension API — register tools/objects/modes/panels/keybindings |
 | `src/core/intent.js` | Dispatch table — `registerDispatch()`, `dispatch()` |
 | `src/core/modifiers.js` | Modifier key tracking + tool-switch overrides |
@@ -158,7 +185,9 @@ Cursors (in `icons/cursors/`) are an exception — they use hardcoded black sinc
 | `src/render/overlay.js` | OverlayManager + OverlayLayer |
 | `src/viewport.js` | `screenToDoc()`, `docToScreen()`, `zoomAt()`, `fitToArtboard()` |
 | `src/textedit.js` | Singleton textarea for text editing sessions |
-| `src/io/io.js` | `newDocument()`, `openSVG()`, `saveSVG()`, `exportSVG()` |
+| `src/io/io.js` | `newDocument()`, `openSVG()`, `saveSVG()`, `exportSVG()` — native format is `.draw` (JSON) |
+| `src/io/serializer.js` | `serializeJSON/deserializeJSON` (native), `exportSVG` (clean SVG), `importSVG` (foreign SVG) |
+| `src/objects/artboard.js` | ArtboardObjectType — `type:'artboard'`, attrs `{x,y,width,height}` |
 | `src/geometry/path-utils.js` | Path string parse/build/transform |
 | `src/geometry/pen-path.js` | `buildPenPathD()` / `parsePenAnchors()` — shared by pen + node |
 
@@ -197,7 +226,9 @@ Cursors (in `icons/cursors/`) are an exception — they use hardcoded black sinc
 **DOM writes:**
 - Never `innerHTML = ''` in overlay code — use `OverlayLayer.clear()` + `borrow()`
 - Reconcile SVG element attributes, don't recreate elements per frame
-- Guard panel rebuilds with a version string: skip if nothing changed
+- Guard panel rebuilds with a version string (`_versionKey()` pattern): skip if nothing changed
+
+**Hot path mentions `renderLayers()` in old docs — that function is now `_renderTree()` internally.**
 
 **Not worth optimizing:** `Math.*` calls, property access on plain objects, JS arithmetic.
 

@@ -3,6 +3,7 @@
  */
 import { Tool } from './base.js';
 import { buildPenPathD, parsePenAnchors } from '../geometry/pen-path.js';
+import { findItem } from '../core/state.js';
 
 const HIT_R = 6; // screen-px hit radius
 
@@ -151,8 +152,8 @@ export class NodeTool extends Tool {
       const postDs = this._snapshotDs();
       const ctx    = this._ctx;
       ctx.execute({
-        do()   { for (const [id, d] of postDs) { const s = _findShape(id, ctx.state); if (s) s.attrs.d = d; const el = ctx.getElement(id); if (el) el.setAttribute('d', d); } ctx.render(); },
-        undo() { for (const [id, d] of preDs)  { const s = _findShape(id, ctx.state); if (s) s.attrs.d = d; const el = ctx.getElement(id); if (el) el.setAttribute('d', d); } ctx.render(); },
+        do()   { for (const [id, d] of postDs) { const s = findItem(id); if (s) s.attrs.d = d; const el = ctx.getElement(id); if (el) el.setAttribute('d', d); } ctx.render(); },
+        undo() { for (const [id, d] of preDs)  { const s = findItem(id); if (s) s.attrs.d = d; const el = ctx.getElement(id); if (el) el.setAttribute('d', d); } ctx.render(); },
       });
     }
     this._mode         = 'idle';
@@ -177,9 +178,9 @@ export class NodeTool extends Tool {
   }
 
   _beginEditing(shapeId) {
-    const found = _findShape(shapeId, this._ctx.state);
-    if (!found || found.shape.type !== 'path') return;
-    const { anchors, closed } = parsePenAnchors(found.shape.attrs.d ?? '');
+    const found = findItem(shapeId);
+    if (!found || found.type !== 'path') return;
+    const { anchors, closed } = parsePenAnchors(found.attrs.d ?? '');
     this._editingIds.add(shapeId);
     this._anchorsMap.set(shapeId, anchors);
     this._closedMap.set(shapeId, closed);
@@ -190,8 +191,8 @@ export class NodeTool extends Tool {
     const anchors = this._anchorsMap.get(shapeId);
     const closed  = this._closedMap.get(shapeId) ?? false;
     const d       = buildPenPathD(anchors, closed);
-    const found   = _findShape(shapeId, this._ctx.state);
-    if (found) found.shape.attrs.d = d;
+    const found = findItem(shapeId);
+    if (found) found.attrs.d = d;
     const el = this._ctx.getElement(shapeId);
     if (el) el.setAttribute('d', d);
   }
@@ -199,8 +200,8 @@ export class NodeTool extends Tool {
   _snapshotDs() {
     const snap = new Map();
     for (const id of this._editingIds) {
-      const found = _findShape(id, this._ctx.state);
-      if (found) snap.set(id, found.shape.attrs.d ?? '');
+      const found = findItem(id);
+      if (found) snap.set(id, found.attrs.d ?? '');
     }
     return snap;
   }
@@ -316,10 +317,3 @@ export class NodeTool extends Tool {
   }
 }
 
-function _findShape(id, state) {
-  for (const layer of state.layers) {
-    const shape = layer.shapes.find(s => s.id === id);
-    if (shape) return { shape, layer };
-  }
-  return null;
-}

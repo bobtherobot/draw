@@ -1,43 +1,40 @@
 /**
  * Document-level operations: new, open, save, export.
  */
-import { state }               from '../core/state.js';
-import { emit }                from '../core/events.js';
-import { fitToArtboard }       from '../viewport.js';
-import { serializeSVG, deserializeSVG } from './serializer.js';
+import { state, nextId, sanitizeItems } from '../core/state.js';
+import { emit }                  from '../core/events.js';
+import { fitToArtboard }         from '../viewport.js';
+import { serializeJSON, deserializeJSON, exportSVG as buildSVG, importSVG } from './serializer.js';
 
 /** Reset to a blank document. */
 export function newDocument() {
-  state.layers = [{
-    id:       'l1',
-    name:     'Layer 1',
-    visible:  true,
-    locked:   false,
-    expanded: true,
-    shapes:   [],
-  }];
-  state.activeLayerId = 'l1';
+  const artboardId = nextId('item');
+  const layerId    = nextId('item');
+  state.items = [
+    { id: artboardId, type: 'artboard', name: 'Artboard 1', parentId: null, visible: true, locked: false, expanded: true, attrs: { x: 0, y: 0, width: 800, height: 600 } },
+    { id: layerId,    type: 'group',    name: 'Layer 1',    parentId: artboardId, visible: true, locked: false, expanded: true },
+  ];
+  state.activeItemId = layerId;
   state.selection.clear();
-  state.doc = { width: 800, height: 600, name: 'Untitled' };
+  state.doc = { name: 'Untitled' };
   emit('render', null);
   fitToArtboard();
 }
 
 /** Trigger the hidden file-open input. */
 export function openSVG() {
-  const input = _getFileInput();
-  input.click();
+  _getFileInput().click();
 }
 
-/** Serialize and download as an editable .svg (with data-id metadata). */
+/** Serialize and download as a native .draw (JSON) file. */
 export function saveSVG() {
-  const svg = serializeSVG(state.layers, state.doc, true);
-  _download(svg, `${state.doc.name || 'drawing'}.svg`, 'image/svg+xml');
+  const json = serializeJSON(state.items, state.doc);
+  _download(json, `${state.doc.name || 'drawing'}.draw`, 'application/json');
 }
 
-/** Serialize and download as a clean export (no metadata). */
+/** Serialize and download as a clean export SVG (no metadata). */
 export function exportSVG() {
-  const svg = serializeSVG(state.layers, state.doc, false);
+  const svg = buildSVG(state.items, state.doc);
   _download(svg, `${state.doc.name || 'export'}.svg`, 'image/svg+xml');
 }
 
@@ -51,7 +48,7 @@ export function initIO() {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (ev) => _loadSVGText(ev.target.result, file.name);
+    reader.onload = (ev) => _loadFile(ev.target.result, file.name);
     reader.readAsText(file);
     e.target.value = '';
   });
@@ -59,17 +56,20 @@ export function initIO() {
 
 // ── Private ──────────────────────────────────────────────────────────────────
 
-function _loadSVGText(svgText, filename) {
-  const result = deserializeSVG(svgText);
+function _loadFile(text, filename) {
+  const isJson = filename.endsWith('.draw') || filename.endsWith('.json');
+  const result = isJson
+    ? deserializeJSON(text)
+    : (importSVG(text) ?? deserializeJSON(text));
   if (!result) return;
 
-  state.layers        = result.layers;
-  state.activeLayerId = result.layers[0]?.id ?? 'l1';
+  state.items        = result.items;
+  // Prefer first layer (group child of artboard), fall back to first group or first item
+  state.activeItemId = result.items.find(i => i.type === 'group')?.id
+                     ?? result.items[0]?.id;
   state.selection.clear();
-  state.doc = {
-    ...result.doc,
-    name: filename.replace(/\.svg$/i, ''),
-  };
+  state.doc = { name: filename.replace(/\.(draw|svg|json)$/i, '') };
+  sanitizeItems(state.items);
 
   emit('render', null);
   fitToArtboard();
@@ -79,9 +79,9 @@ function _getFileInput() {
   let input = document.getElementById('file-open');
   if (!input) {
     input = document.createElement('input');
-    input.type   = 'file';
-    input.id     = 'file-open';
-    input.accept = '.svg,image/svg+xml';
+    input.type    = 'file';
+    input.id      = 'file-open';
+    input.accept  = '.draw,.svg,application/json,image/svg+xml';
     input.style.display = 'none';
     document.body.appendChild(input);
   }

@@ -7,14 +7,13 @@
  *   3. ObjectType.hitPart() on all shapes (front-to-back)
  *   4. null → empty canvas
  */
-import { state, allShapes } from './state.js';
+import { state, allDisplayItems, findItem } from './state.js';
 
 /**
  * @typedef {Object} HitResult
  * @property {string}      objectType
  * @property {string}      part
  * @property {object}      shape
- * @property {object}      layer
  * @property {*}           [detail]
  */
 
@@ -32,12 +31,11 @@ export function hitTest(screenX, screenY, getObjectType, getElement) {
     const handle = el.closest('[data-handle]');
     if (handle) {
       const shapeId = handle.dataset.shapeId ?? null;
-      const found   = shapeId ? _findShape(shapeId) : null;
+      const shape   = shapeId ? findItem(shapeId) : null;
       return {
-        objectType: found?.shape.type ?? null,
+        objectType: shape?.type ?? null,
         part:       handle.dataset.handle,
-        shape:      found?.shape ?? null,
-        layer:      found?.layer ?? null,
+        shape:      shape ?? null,
       };
     }
   }
@@ -50,12 +48,12 @@ export function hitTest(screenX, screenY, getObjectType, getElement) {
   const docY = (screenY - canvasRect.top)  / zoom + vy;
 
   // 2. Selected shapes first (front-to-back within selection)
-  const selectedShapes = allShapes().filter(s => state.selection.has(s.id));
+  const selectedShapes = allDisplayItems().filter(s => state.selection.has(s.id));
   const hit2 = _hitShapes(selectedShapes, docX, docY, zoom, getObjectType, getElement);
   if (hit2) return hit2;
 
-  // 3. All shapes front-to-back (layers are ordered front-to-back within each layer)
-  const all = allShapes();
+  // 3. All shapes front-to-back
+  const all  = allDisplayItems();
   const hit3 = _hitShapes(all, docX, docY, zoom, getObjectType, getElement);
   if (hit3) return hit3;
 
@@ -64,23 +62,14 @@ export function hitTest(screenX, screenY, getObjectType, getElement) {
 
 function _hitShapes(shapes, docX, docY, zoom, getObjectType, getElement) {
   for (let i = shapes.length - 1; i >= 0; i--) {
-    const shape = shapes[i];
-    const ot    = getObjectType(shape.type);
+    const shape  = shapes[i];
+    const ot     = getObjectType(shape.type);
     if (!ot) continue;
     const el     = getElement(shape.id);
     const result = ot.hitPart(shape, docX, docY, zoom, el);
     if (result) {
-      const found = _findShape(shape.id);
-      return { objectType: shape.type, part: result.part, detail: result.detail, shape, layer: found?.layer ?? null };
+      return { objectType: shape.type, part: result.part, detail: result.detail, shape };
     }
-  }
-  return null;
-}
-
-function _findShape(id) {
-  for (const layer of state.layers) {
-    const shape = layer.shapes.find(s => s.id === id);
-    if (shape) return { shape, layer };
   }
   return null;
 }

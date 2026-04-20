@@ -1,55 +1,106 @@
 /**
- * SVG serializer — delegates to ObjectType.toSVGString / fromSVGElement.
- * Handles legacy rect/ellipse elements on load by converting to path.
+ * IO serializer.
  *
- * NOTE — ID reconstruction on load:
- * All IDs (layer and shape) are always regenerated via nextId() when deserializing.
- * IDs from the file are never trusted. This guarantees uniqueness when multiple
- * documents are opened in the same session, and avoids stale cross-references.
- * When save/load is fully implemented, layer.name and shape.name carry the human
- * labels; IDs are purely session-local handles.
+ * Native format (save/load): JSON via serializeJSON / deserializeJSON.
+ * SVG format (export/import): exportSVG / importSVG.
+ *
+ * ID reconstruction on load:
+ * All IDs are always regenerated via nextId() when deserializing.
+ * IDs from the file are never trusted — this guarantees uniqueness when
+ * multiple documents are opened in the same session.
  */
 import { getObjectType } from '../core/registry.js';
 import { rectToPathD, ellipseToPathD } from '../geometry/path-utils.js';
-import { nextId } from '../core/state.js';
+import { nextId, sanitizeItems } from '../core/state.js';
+
+// ── JSON (native .draw format) ────────────────────────────────────────────────
 
 /**
- * Serialize all layers to an SVG string.
- *
- * @param {object[]}  layers
- * @param {object}    doc          — { width, height, name }
- * @param {boolean}   metadata     — include data-id attributes for round-trip fidelity
+ * Serialize items to a JSON string.
+ * @param {object[]} items
+ * @param {object}   doc   — { width, height, name }
  * @returns {string}
  */
-export function serializeSVG(layers, doc, metadata) {
-  let out = `<svg xmlns="http://www.w3.org/2000/svg" width="${doc.width}" height="${doc.height}" viewBox="0 0 ${doc.width} ${doc.height}">\n`;
+export function serializeJSON(items, doc) {
+  return JSON.stringify({ version: 1, doc, items }, null, 2);
+}
 
-  for (const layer of layers) {
-    const layerAttrs = metadata
-      ? ` id="layer-${layer.id}" data-name="${_esc(layer.name)}" data-visible="${layer.visible}" data-locked="${layer.locked}"`
-      : ` id="layer-${layer.id}"`;
-    out += `  <g${layerAttrs}>\n`;
+/**
+ * Parse a .draw JSON string back into items + doc.
+ * Regenerates all IDs to avoid session collisions.
+ * Upgrades old format (doc.width/height instead of artboard item) transparently.
+ * @param {string} text
+ * @returns {{ items: object[], doc: object } | null}
+ */
+export function deserializeJSON(text) {
+  try {
+    const parsed = JSON.parse(text);
+    if (!Array.isArray(parsed.items) || !parsed.doc) return null;
 
-    for (const shape of layer.shapes) {
-      const ot = getObjectType(shape.type);
-      if (ot) {
-        out += `    ${ot.toSVGString(shape, metadata)}\n`;
-      }
+    const idMap    = new Map();
+    const newItems = parsed.items.map(item => {
+      const prefix = (item.type === 'group' || item.type === 'artboard') ? 'item' : item.type;
+      const newId  = nextId(prefix);
+      idMap.set(item.id, newId);
+      return { ...item, id: newId };
+    });
+    for (const item of newItems) {
+      if (item.parentId) item.parentId = idMap.get(item.parentId) ?? null;
     }
-    out += `  </g>\n`;
-  }
 
+    // Upgrade: old files stored dimensions on doc instead of artboard item
+    if (!newItems.some(i => i.type === 'artboard') && parsed.doc.width && parsed.doc.height) {
+      const artboardId = nextId('item');
+      const artboard = {
+        id: artboardId, type: 'artboard', name: 'Artboard 1',
+        parentId: null, visible: true, locked: false, expanded: true,
+        attrs: { x: 0, y: 0, width: parsed.doc.width, height: parsed.doc.height },
+      };
+      for (const item of newItems) {
+        if (item.parentId === null) item.parentId = artboardId;
+      }
+      newItems.unshift(artboard);
+    }
+
+    sanitizeItems(newItems);
+    const doc = { name: parsed.doc.name ?? 'Untitled' };
+    return { items: newItems, doc };
+  } catch (_) {
+    return null;
+  }
+}
+
+// ── SVG export ────────────────────────────────────────────────────────────────
+
+/**
+ * Export items to a clean SVG string (no metadata attributes).
+ * Uses the first artboard item for dimensions; falls back to 800×600.
+ * @param {object[]} items
+ * @param {object}   _doc  (unused — dimensions come from artboard items)
+ * @returns {string}
+ */
+export function exportSVG(items, _doc) {
+  const artboard = items.find(i => i.type === 'artboard');
+  const { x = 0, y = 0, width = 800, height = 600 } = artboard?.attrs ?? {};
+  let out = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${x} ${y} ${width} ${height}">\n`;
+  // Export only children of artboards (skip artboard container items themselves)
+  const exportItems = items.filter(i => i.type !== 'artboard');
+  for (const node of _buildExportTree(exportItems)) {
+    out += _renderExportNode(node, 1);
+  }
   out += `</svg>`;
   return out;
 }
 
+// ── SVG import ────────────────────────────────────────────────────────────────
+
 /**
- * Parse an SVG string into layers + shapes using registered ObjectTypes.
- *
+ * Parse a foreign SVG string into a flat items array.
+ * Top-level <g> elements become group items; their children become display items.
  * @param {string} svgText
- * @returns {{ layers: object[], doc: {width:number, height:number, name:string} } | null}
+ * @returns {{ items: object[], doc: object } | null}
  */
-export function deserializeSVG(svgText) {
+export function importSVG(svgText) {
   const parser = new DOMParser();
   const xmlDoc = parser.parseFromString(svgText, 'image/svg+xml');
   const svgEl  = xmlDoc.querySelector('svg');
@@ -57,51 +108,107 @@ export function deserializeSVG(svgText) {
 
   const width  = parseFloat(svgEl.getAttribute('width')  ?? '800') || 800;
   const height = parseFloat(svgEl.getAttribute('height') ?? '600') || 600;
-  const doc    = { width, height, name: 'Untitled' };
+  const doc    = { name: 'Untitled' };
 
-  const layers = [];
-  let   lid    = 1;
+  const artboardId = nextId('item');
+  const items = [{
+    id:       artboardId,
+    type:     'artboard',
+    name:     'Artboard 1',
+    parentId: null,
+    visible:  true,
+    locked:   false,
+    expanded: true,
+    attrs:    { x: 0, y: 0, width, height },
+  }];
+  let lid = 1;
 
   for (const g of svgEl.querySelectorAll(':scope > g')) {
-    const layer = {
-      id:       nextId('layer'),
+    const groupId = nextId('item');
+    items.push({
+      id:       groupId,
+      type:     'group',
       name:     g.dataset.name || `Layer ${lid++}`,
+      parentId: artboardId,
       visible:  g.dataset.visible !== 'false',
       locked:   g.dataset.locked  === 'true',
       expanded: true,
-      shapes:   [],
-    };
+    });
 
     for (const child of g.children) {
-      const shape = _elementToShape(child);
-      if (shape) layer.shapes.push(shape);
+      const shape = _elementToItem(child);
+      if (shape) {
+        shape.parentId = groupId;
+        items.push(shape);
+      }
     }
-    layers.push(layer);
   }
 
-  return layers.length ? { layers, doc } : null;
+  // If no top-level <g> layers, create a default layer and import loose children
+  if (items.length === 1) {
+    const layerId = nextId('item');
+    items.push({ id: layerId, type: 'group', name: 'Layer 1', parentId: artboardId, visible: true, locked: false, expanded: true });
+    for (const child of svgEl.children) {
+      if (child.tagName === 'g') continue;
+      const shape = _elementToItem(child);
+      if (shape) { shape.parentId = layerId; items.push(shape); }
+    }
+  }
+
+  sanitizeItems(items);
+  return { items, doc };
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── SVG export helpers ────────────────────────────────────────────────────────
 
-function _elementToShape(el) {
+function _buildExportTree(items) {
+  const byId = {};
+  for (const item of items) byId[item.id] = { item, children: [] };
+  const roots = [];
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i];
+    const node = byId[item.id];
+    if (item.parentId && byId[item.parentId]) {
+      byId[item.parentId].children.push(node);
+    } else {
+      roots.push(node);
+    }
+  }
+  return roots;
+}
+
+function _renderExportNode(node, indent) {
+  const { item, children } = node;
+  const prefix = '  '.repeat(indent);
+  const ot     = getObjectType(item.type);
+
+  if (item.type === 'group' || children.length > 0) {
+    let out = `${prefix}<g>\n`;
+    if (item.type !== 'group' && ot) {
+      out += `${prefix}  ${ot.toSVGString(item, false)}\n`;
+    }
+    for (const child of children) {
+      out += _renderExportNode(child, indent + 1);
+    }
+    out += `${prefix}</g>\n`;
+    return out;
+  }
+  return ot ? `${prefix}${ot.toSVGString(item, false)}\n` : '';
+}
+
+// ── SVG import helpers ────────────────────────────────────────────────────────
+
+function _elementToItem(el) {
   const tag = el.tagName.toLowerCase();
 
-  // Convert legacy rect/ellipse to path before dispatching to ObjectTypes
-  if (tag === 'rect') {
-    return _legacyRect(el);
-  }
-  if (tag === 'ellipse') {
-    return _legacyEllipse(el);
-  }
+  if (tag === 'rect')    return _legacyRect(el);
+  if (tag === 'ellipse') return _legacyEllipse(el);
 
-  // Try each registered ObjectType that handles this element
-  // text-block must be tried before text-line (it checks data-type attr)
   for (const typeId of ['text-block', 'text-line', 'path', 'group']) {
-    const ot    = getObjectType(typeId);
+    const ot   = getObjectType(typeId);
     if (!ot) continue;
-    const shape = ot.fromSVGElement(el);
-    if (shape) return shape;
+    const item = ot.fromSVGElement(el);
+    if (item) return item;
   }
   return null;
 }
@@ -138,12 +245,4 @@ function _parseStyle(el) {
     stroke:      el.getAttribute('stroke')       ?? 'none',
     strokeWidth: Number(el.getAttribute('stroke-width') ?? 1),
   };
-}
-
-function _esc(s) {
-  return String(s ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/"/g, '&quot;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
 }

@@ -5,7 +5,7 @@
 import { Tool } from './base.js';
 import { startEditing, isEditing } from '../textedit.js';
 import { unionBBoxes } from '../geometry/bbox.js';
-import { effectiveVisible } from '../core/state.js';
+import { effectiveVisible, allDisplayItems, findItem, sanitizeItems } from '../core/state.js';
 
 const SCALE_HANDLES = ['nw','n','ne','e','se','s','sw','w'];
 const DBL_CLICK_MS  = 400;
@@ -53,10 +53,10 @@ export class SelectTool extends Tool {
     if (!handle) {
       const hitId = this._shapeIdAt(e.target);
       if (hitId && hitId === this._lastClickId && now - this._lastClickT < DBL_CLICK_MS) {
-        const found = _findShape(hitId, ctx.state);
-        if (found && (found.shape.type === 'text-line' || found.shape.type === 'text-block')) {
+        const shape = findItem(hitId);
+        if (shape && (shape.type === 'text-line' || shape.type === 'text-block')) {
           this._lastClickId = null;
-          this._openTextEditor(found.shape, hitId);
+          this._openTextEditor(shape, hitId);
           return;
         }
       }
@@ -106,17 +106,16 @@ export class SelectTool extends Tool {
 
     if (this._mode === 'move') {
       for (const id of ctx.state.selection) {
-        const found = _findShape(id, ctx.state);
-        if (!found) continue;
+        const shape = findItem(id);
+        if (!shape) continue;
         const snap = this._snapshots.get(id);
         if (!snap) continue;
-        const ot = ctx.getObjectType(found.shape.type);
+        const ot = ctx.getObjectType(shape.type);
         if (!ot) continue;
-        // Restore from snapshot then translate
-        _restoreShape(found.shape, snap);
-        ot.translate(found.shape, dx, dy);
+        _restoreShape(shape, snap);
+        ot.translate(shape, dx, dy);
         const el = ctx.getElement(id);
-        if (el) ot.syncElement(el, found.shape, { mode: ctx.state.activeMode, zoom: ctx.state.viewport.zoom });
+        if (el) ot.syncElement(el, shape, { mode: ctx.state.activeMode, zoom: ctx.state.viewport.zoom });
       }
       ctx.render();
     } else if (this._mode === 'band') {
@@ -143,21 +142,21 @@ export class SelectTool extends Tool {
       const snapshots = new Map(this._snapshots);
       const postSnaps = new Map();
       for (const id of ctx.state.selection) {
-        const found = _findShape(id, ctx.state);
-        if (found) postSnaps.set(id, _cloneShape(found.shape));
+        const shape = findItem(id);
+        if (shape) postSnaps.set(id, _cloneShape(shape));
       }
       ctx.execute({
         do() {
           for (const [id, snap] of postSnaps) {
-            const found = _findShape(id, ctx.state);
-            if (found) _restoreShape(found.shape, snap);
+            const shape = findItem(id);
+            if (shape) _restoreShape(shape, snap);
           }
           ctx.render();
         },
         undo() {
           for (const [id, snap] of snapshots) {
-            const found = _findShape(id, ctx.state);
-            if (found) _restoreShape(found.shape, snap);
+            const shape = findItem(id);
+            if (shape) _restoreShape(shape, snap);
           }
           ctx.render();
         },
@@ -195,8 +194,8 @@ export class SelectTool extends Tool {
   _snapshotMove() {
     this._snapshots.clear();
     for (const id of this._ctx.state.selection) {
-      const found = _findShape(id, this._ctx.state);
-      if (found) this._snapshots.set(id, _cloneShape(found.shape));
+      const shape = findItem(id);
+      if (shape) this._snapshots.set(id, _cloneShape(shape));
     }
   }
 
@@ -207,8 +206,8 @@ export class SelectTool extends Tool {
     this._scaleHandle = handle;
     this._snapshots.clear();
     for (const id of this._ctx.state.selection) {
-      const found = _findShape(id, this._ctx.state);
-      if (found) this._snapshots.set(id, _cloneShape(found.shape));
+      const shape = findItem(id);
+      if (shape) this._snapshots.set(id, _cloneShape(shape));
     }
     // Capture selection bbox at drag start
     this._bboxSnap = this._selectionBBox();
@@ -237,12 +236,12 @@ export class SelectTool extends Tool {
     const oy = h.includes('n') ? bb.y + bb.height : bb.y;
 
     for (const id of ctx.state.selection) {
-      const found = _findShape(id, ctx.state);
-      if (!found) continue;
+      const shape = findItem(id);
+      if (!shape) continue;
       const snap = this._snapshots.get(id);
       if (!snap) continue;
-      _restoreShape(found.shape, snap);
-      ctx.getObjectType(found.shape.type)?.scale(found.shape, sx, sy, ox, oy);
+      _restoreShape(shape, snap);
+      ctx.getObjectType(shape.type)?.scale(shape, sx, sy, ox, oy);
     }
   }
 
@@ -252,8 +251,8 @@ export class SelectTool extends Tool {
     this._mode    = 'rotate';
     this._snapshots.clear();
     for (const id of this._ctx.state.selection) {
-      const found = _findShape(id, this._ctx.state);
-      if (found) this._snapshots.set(id, _cloneShape(found.shape));
+      const shape = findItem(id);
+      if (shape) this._snapshots.set(id, _cloneShape(shape));
     }
     const bb = this._selectionBBox();
     if (bb) {
@@ -267,12 +266,12 @@ export class SelectTool extends Tool {
     const angle = Math.atan2(pos.y - this._rotCenter.y, pos.x - this._rotCenter.x) * 180 / Math.PI;
     let   delta = angle - this._rotStart;
     for (const id of this._ctx.state.selection) {
-      const found = _findShape(id, this._ctx.state);
-      if (!found) continue;
+      const shape = findItem(id);
+      if (!shape) continue;
       const snap = this._snapshots.get(id);
       if (!snap) continue;
-      _restoreShape(found.shape, snap);
-      this._ctx.getObjectType(found.shape.type)?.bakeRotation(found.shape, delta, this._rotCenter.x, this._rotCenter.y);
+      _restoreShape(shape, snap);
+      this._ctx.getObjectType(shape.type)?.bakeRotation(shape, delta, this._rotCenter.x, this._rotCenter.y);
     }
   }
 
@@ -282,21 +281,19 @@ export class SelectTool extends Tool {
     const s  = this._dragStart;
     const x0 = Math.min(s.x, end.x), y0 = Math.min(s.y, end.y);
     const x1 = Math.max(s.x, end.x), y1 = Math.max(s.y, end.y);
-    if (Math.abs(x1-x0) < 2 && Math.abs(y1-y0) < 2) return; // too small
+    if (Math.abs(x1-x0) < 2 && Math.abs(y1-y0) < 2) return;
 
     const ctx = this._ctx;
     const sel = additive ? new Set(ctx.state.selection) : new Set();
-    for (const layer of ctx.state.layers) {
-      if (!effectiveVisible(layer)) continue;
-      for (const shape of layer.shapes) {
-        if (shape.visible === false || shape.locked === true) continue;
-        const ot = ctx.getObjectType(shape.type);
-        const bb = ot?.getBBox(shape, ctx.getElement(shape.id));
-        if (!bb) continue;
-        if (bb.x >= x0 && bb.x + bb.width  <= x1 &&
-            bb.y >= y0 && bb.y + bb.height <= y1) {
-          sel.add(shape.id);
-        }
+    for (const shape of allDisplayItems()) {
+      if (!effectiveVisible(shape)) continue;
+      if (shape.visible === false || shape.locked === true) continue;
+      const ot = ctx.getObjectType(shape.type);
+      const bb = ot?.getBBox(shape, ctx.getElement(shape.id));
+      if (!bb) continue;
+      if (bb.x >= x0 && bb.x + bb.width  <= x1 &&
+          bb.y >= y0 && bb.y + bb.height <= y1) {
+        sel.add(shape.id);
       }
     }
     ctx.state.selection = sel;
@@ -309,21 +306,21 @@ export class SelectTool extends Tool {
     const ctx       = this._ctx;
     const postSnaps = new Map();
     for (const id of ctx.state.selection) {
-      const found = _findShape(id, ctx.state);
-      if (found) postSnaps.set(id, _cloneShape(found.shape));
+      const shape = findItem(id);
+      if (shape) postSnaps.set(id, _cloneShape(shape));
     }
     ctx.execute({
       do() {
         for (const [id, snap] of postSnaps) {
-          const found = _findShape(id, ctx.state);
-          if (found) _restoreShape(found.shape, snap);
+          const shape = findItem(id);
+          if (shape) _restoreShape(shape, snap);
         }
         ctx.render();
       },
       undo() {
         for (const [id, snap] of snapshots) {
-          const found = _findShape(id, ctx.state);
-          if (found) _restoreShape(found.shape, snap);
+          const shape = findItem(id);
+          if (shape) _restoreShape(shape, snap);
         }
         ctx.render();
       },
@@ -346,8 +343,8 @@ export class SelectTool extends Tool {
       initialText: shape._text ?? '',
       onCommit: (text) => {
         ctx.execute({
-          do()   { const f = _findShape(shapeId, ctx.state); if (f) { f.shape._text = text; ctx.render(); } },
-          undo() { const f = _findShape(shapeId, ctx.state); if (f) { _restoreShape(f.shape, snap); ctx.render(); } },
+          do()   { const s = findItem(shapeId); if (s) { s._text = text; ctx.render(); } },
+          undo() { const s = findItem(shapeId); if (s) { _restoreShape(s, snap); ctx.render(); } },
         });
       },
     });
@@ -358,33 +355,23 @@ export class SelectTool extends Tool {
   deleteSelected() { this._deleteSelected(); }
 
   _deleteSelected() {
-    const ctx  = this._ctx;
-    const ids  = [...ctx.state.selection];
+    const ctx = this._ctx;
+    const ids = [...ctx.state.selection];
     if (ids.length === 0) return;
 
-    // Snapshot for undo: layer id + shape per deleted shape
-    const deleted = ids.map(id => {
-      for (const layer of ctx.state.layers) {
-        const shape = layer.shapes.find(s => s.id === id);
-        if (shape) return { layerId: layer.id, shape: _cloneShape(shape), idx: layer.shapes.indexOf(shape) };
-      }
-    }).filter(Boolean);
+    const oldItems = [...ctx.state.items];
+    const oldSel   = new Set(ctx.state.selection);
 
     ctx.execute({
       do() {
-        for (const { layerId, shape } of deleted) {
-          const layer = ctx.state.layers.find(l => l.id === layerId);
-          if (layer) layer.shapes = layer.shapes.filter(s => s.id !== shape.id);
-        }
+        ctx.state.items = ctx.state.items.filter(i => !ids.includes(i.id));
+        sanitizeItems(ctx.state.items);
         ctx.state.selection = new Set();
         ctx.render();
       },
       undo() {
-        for (const { layerId, shape, idx } of deleted) {
-          const layer = ctx.state.layers.find(l => l.id === layerId);
-          if (layer) layer.shapes.splice(idx, 0, shape);
-        }
-        ctx.state.selection = new Set(deleted.map(d => d.shape.id));
+        ctx.state.items     = oldItems;
+        ctx.state.selection = oldSel;
         ctx.render();
       },
     });
@@ -402,13 +389,13 @@ export class SelectTool extends Tool {
   }
 
   _selectionBBox() {
-    const ctx  = this._ctx;
-    const bbs  = [];
+    const ctx = this._ctx;
+    const bbs = [];
     for (const id of ctx.state.selection) {
-      const found = _findShape(id, ctx.state);
-      if (!found) continue;
-      const ot = ctx.getObjectType(found.shape.type);
-      const bb = ot?.getBBox(found.shape, ctx.getElement(id));
+      const shape = findItem(id);
+      if (!shape) continue;
+      const ot = ctx.getObjectType(shape.type);
+      const bb = ot?.getBBox(shape, ctx.getElement(id));
       if (bb) bbs.push(bb);
     }
     return unionBBoxes(bbs);
@@ -429,14 +416,6 @@ export class SelectTool extends Tool {
 }
 
 // ── Module-level helpers ─────────────────────────────────────────────────────
-
-function _findShape(id, state) {
-  for (const layer of state.layers) {
-    const shape = layer.shapes.find(s => s.id === id);
-    if (shape) return { shape, layer };
-  }
-  return null;
-}
 
 function _cloneShape(shape) {
   return {

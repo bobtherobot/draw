@@ -2,7 +2,7 @@
  * Pan, zoom, coordinate conversion.
  * All shape positions are in document space; this module converts to/from screen space.
  */
-import { state } from './core/state.js';
+import { state, getActiveArtboard } from './core/state.js';
 import { emit }  from './core/events.js';
 
 const MIN_ZOOM = 0.05;
@@ -103,12 +103,15 @@ export function panBy(dx, dy) {
 export function fitToArtboard() {
   const rect  = getCanvasRect();
   const pad   = 64;
-  const aw    = state.doc.width;
-  const ah    = state.doc.height;
+  const ab    = getActiveArtboard();
+  const aw    = ab?.attrs.width  ?? 800;
+  const ah    = ab?.attrs.height ?? 600;
   const zoom  = Math.min((rect.width - pad * 2) / aw, (rect.height - pad * 2) / ah);
+  const ax = ab?.attrs.x ?? 0;
+  const ay = ab?.attrs.y ?? 0;
   state.viewport.zoom = zoom;
-  state.viewport.x    = -(rect.width  / zoom - aw) / 2;
-  state.viewport.y    = -(rect.height / zoom - ah) / 2;
+  state.viewport.x    = ax - (rect.width  / zoom - aw) / 2;
+  state.viewport.y    = ay - (rect.height / zoom - ah) / 2;
   updateViewBox();
   emit('viewport-change');
 }

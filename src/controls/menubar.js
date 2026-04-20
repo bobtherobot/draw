@@ -3,7 +3,7 @@
  */
 import { newDocument, openSVG, saveSVG, exportSVG } from '../io/io.js';
 import { undo, redo, canUndo, canRedo }              from '../core/history.js';
-import { allShapes }                                  from '../core/state.js';
+import { allDisplayItems }                            from '../core/state.js';
 import { state }                                      from '../core/state.js';
 import { render }                                     from '../render/renderer.js';
 import { getTool }                                    from '../core/registry.js';
@@ -111,7 +111,7 @@ function _execute(action) {
 }
 
 function _selectAll() {
-  const shapes = allShapes();
+  const shapes = allDisplayItems();
   if (shapes.length === 0) return;
   state.selection = new Set(shapes.map(s => s.id));
   render();

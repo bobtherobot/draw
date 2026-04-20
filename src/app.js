@@ -39,11 +39,16 @@ export function buildApp() {
   // SVG layer structure (matches CLAUDE.md spec)
   const artboardLayer  = _svgG('artboard-layer');
   const docRoot        = _svgG('doc-root');
+  const docLayer       = _svgG('doc-layer');   // render root for all items
   const textGuides     = _svgG('text-guides');
   const overlayHit     = _svgG('overlay-hit');
   const overlay        = _svgG('overlay');
 
-  docRoot.appendChild(textGuides);
+  // <defs> for per-artboard clip paths (populated by renderer)
+  const defs = document.createElementNS(SVG_NS, 'defs');
+  svg.appendChild(defs);
+
+  docRoot.append(docLayer, textGuides);
   svg.append(artboardLayer, docRoot, overlayHit, overlay);
   canvasWrap.appendChild(svg);
 

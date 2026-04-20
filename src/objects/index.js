@@ -3,8 +3,10 @@ import { PathObjectType }      from './path.js';
 import { TextLineObjectType }  from './text-line.js';
 import { TextBlockObjectType } from './text-block.js';
 import { GroupObjectType }     from './group.js';
+import { ArtboardObjectType }  from './artboard.js';
 
 registerObjectType(new PathObjectType());
 registerObjectType(new TextLineObjectType());
 registerObjectType(new TextBlockObjectType());
 registerObjectType(new GroupObjectType());
+registerObjectType(new ArtboardObjectType());

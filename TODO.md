@@ -73,6 +73,7 @@ All tools need hands-on testing at http://localhost:8000. Known risk areas:
 - [ ] Group / ungroup (Cmd+G / Cmd+Shift+G) — wraps selected shapes in a `group` ObjectType
 - [ ] Duplicate (Cmd+D) — clone selected shapes with offset
 
+
 ### Canvas / view
 - [ ] Snapping to grid / to other shapes (optional, low priority)
 - [ ] Ruler display along top and left edges (optional)
@@ -103,3 +104,4 @@ All tools need hands-on testing at http://localhost:8000. Known risk areas:
 - No artboard resize in-session (requires document setup dialog)
 - `openSVG` round-trip only preserves shapes with `data-type` metadata attributes; generic SVG import is partial
 - Provide a way for users to export/import all options and settings, so they can restore their setup or share their setup.
+- Collections - introduce a concept where display items, or even individual nodes in a shape can be added to a collection. Which is slightly different from a layer or a group, as collections can span layers, shapes or groups. Adding anything to a collection will allow a user to quickly show/hide, lock, or adjust anything (like fill, stroke, etc) that is in a collection when the collection (or multiple collections) are selected. Might get a little tricky if we allow shape nodes to be added to a collection -- we might want to have shape nodes in collections only when in wireframe mode?

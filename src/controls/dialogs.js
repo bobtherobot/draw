@@ -1,7 +1,7 @@
 /**
  * Modal dialogs — Document Settings, Options.
  */
-import { state }          from '../core/state.js';
+import { state, getActiveArtboard } from '../core/state.js';
 import { render }         from '../render/renderer.js';
 import { applyTheme }     from '../app.js';
 import { fitToArtboard }  from '../viewport.js';
@@ -144,7 +144,11 @@ function _dimensionRow(labelText, value, onChange) {
 }
 
 export function showDocumentSettings() {
-  const vals = { width: state.doc.width, height: state.doc.height };
+  const ab   = getActiveArtboard();
+  const vals = {
+    width:  ab?.attrs.width  ?? 800,
+    height: ab?.attrs.height ?? 600,
+  };
 
   _openDialog({
     title: 'Document Settings',
@@ -173,8 +177,11 @@ export function showDocumentSettings() {
       body.append(_field('Preset', presetSel), sep, wRow, hRow);
     },
     onApply() {
-      state.doc.width  = vals.width;
-      state.doc.height = vals.height;
+      const artboard = getActiveArtboard();
+      if (artboard) {
+        artboard.attrs.width  = vals.width;
+        artboard.attrs.height = vals.height;
+      }
       fitToArtboard();
       render();
     },

@@ -2,6 +2,7 @@
  * Selection bounding box, scale handles, and rotate handle.
  * Rendered into the 'selection' overlay layer via OverlayManager.
  */
+import { findItem }    from '../core/state.js';
 import { unionBBoxes } from '../geometry/bbox.js';
 
 const HANDLE_SIZE  = 6;   // screen px
@@ -26,9 +27,8 @@ export function renderSelection(layer, state, getObjectType, getElement) {
   // Gather bboxes for selected shapes
   const bboxes = [];
   for (const id of state.selection) {
-    const found = _findShape(id, state);
-    if (!found) continue;
-    const { shape } = found;
+    const shape = findItem(id);
+    if (!shape) continue;
     const ot = getObjectType(shape.type);
     if (!ot) continue;
     const el = getElement(id);
@@ -95,11 +95,3 @@ export function renderSelection(layer, state, getObjectType, getElement) {
   rot.setAttribute('vector-effect', 'non-scaling-stroke');
 }
 
-/** @returns {{shape, layer}|null} */
-function _findShape(id, state) {
-  for (const layer of state.layers) {
-    const shape = layer.shapes.find(s => s.id === id);
-    if (shape) return { shape, layer };
-  }
-  return null;
-}

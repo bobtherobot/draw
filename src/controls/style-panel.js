@@ -2,7 +2,7 @@
  * Style panel — fill, stroke, stroke-width controls.
  * Reflects state.currentStyle and applies to selection.
  */
-import { state }      from '../core/state.js';
+import { state, findItem } from '../core/state.js';
 import { on, emit }   from '../core/events.js';
 import { execute }    from '../core/history.js';
 import { getObjectType } from '../core/registry.js';
@@ -125,10 +125,9 @@ function _syncToCurrentStyle() {
 }
 
 function _getDisplayStyle() {
-  // If shapes selected, show first selected shape's style
   for (const id of state.selection) {
-    const found = _findShape(id);
-    if (found) return found.shape.style;
+    const shape = findItem(id);
+    if (shape) return shape.style;
   }
   return state.currentStyle;
 }
@@ -151,42 +150,34 @@ function _commitColor(prop, snapshot, value) {
 
 function _applyStyle(prop, value) {
   for (const id of state.selection) {
-    const found = _findShape(id);
-    if (!found) continue;
-    found.shape.style[prop] = value;
-    const ot = getObjectType(found.shape.type);
+    const shape = findItem(id);
+    if (!shape) continue;
+    shape.style[prop] = value;
+    const ot = getObjectType(shape.type);
     const el = getElement(id);
-    if (ot && el) ot.syncElement(el, found.shape, { mode: state.activeMode, zoom: state.viewport.zoom });
+    if (ot && el) ot.syncElement(el, shape, { mode: state.activeMode, zoom: state.viewport.zoom });
   }
 }
 
 function _snapshotSelection() {
   const shapes = {};
   for (const id of state.selection) {
-    const found = _findShape(id);
-    if (found) shapes[id] = { ...found.shape.style };
+    const shape = findItem(id);
+    if (shape) shapes[id] = { ...shape.style };
   }
   return { shapes, currentStyle: { ...state.currentStyle } };
 }
 
 function _restoreSnapshot(snap) {
   for (const [id, style] of Object.entries(snap.shapes)) {
-    const found = _findShape(id);
-    if (found) {
-      Object.assign(found.shape.style, style);
-      const ot = getObjectType(found.shape.type);
+    const shape = findItem(id);
+    if (shape) {
+      Object.assign(shape.style, style);
+      const ot = getObjectType(shape.type);
       const el = getElement(id);
-      if (ot && el) ot.syncElement(el, found.shape, { mode: state.activeMode, zoom: state.viewport.zoom });
+      if (ot && el) ot.syncElement(el, shape, { mode: state.activeMode, zoom: state.viewport.zoom });
     }
   }
-}
-
-function _findShape(id) {
-  for (const layer of state.layers) {
-    const shape = layer.shapes.find(s => s.id === id);
-    if (shape) return { shape, layer };
-  }
-  return null;
 }
 
 function _el(tag, cls) {

@@ -1,34 +1,33 @@
 /**
- * Layers panel — hierarchical layer/shape tree with drag-to-move.
+ * Layers panel — unified tree of all items (groups and display types).
  *
  * Panel selection (_panelSel) is independent of canvas selection (state.selection).
  * Shift-click adds/removes from _panelSel; footer bulk actions operate on _panelSel.
- * For shape rows, _panelSel and state.selection are kept in sync.
+ * For display-item rows, _panelSel and state.selection are kept in sync.
  */
-import { state, effectiveVisible, effectiveLocked, nextId, sanitizeName } from '../core/state.js';
+import { state, effectiveVisible, effectiveLocked, nextId, sanitizeName, findItem, sanitizeItems } from '../core/state.js';
 import { on, emit }    from '../core/events.js';
 import { execute }     from '../core/history.js';
 import { getIconSync } from '../core/icons.js';
 import { render }      from '../render/renderer.js';
 
-const INDENT_PX = 12; // px per depth level
+const INDENT_PX = 12;
 
 let _panelBody   = null;
 let _panelFooter = null;
 let _version     = null;
-let _panelSel    = new Set(); // 'layer:<id>' | 'shape:<id>'
-let _anchor      = null;      // last non-shift click target key — range selection origin
-let _drag        = null;      // active drag state
-let _didDrag     = false;     // suppress click after completed drag
-let _dropLineEl  = null;      // floating drop indicator element
+let _panelSel    = new Set(); // 'item:<id>'
+let _anchor      = null;
+let _drag        = null;
+let _didDrag     = false;
+let _dropLineEl  = null;
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 export function initLayersPanel(registerPanel) {
   registerPanel('layers', 'Layers', (contentEl) => {
-    // Make content area a flex column so body scrolls and footer stays pinned
-    contentEl.style.display        = 'flex';
-    contentEl.style.flexDirection  = 'column';
+    contentEl.style.display       = 'flex';
+    contentEl.style.flexDirection = 'column';
 
     _panelBody   = _el('div', 'layers-panel');
     _panelFooter = _el('div', 'lp-footer');
@@ -46,17 +45,19 @@ export function initLayersPanel(registerPanel) {
 
 // ── Tree builder ──────────────────────────────────────────────────────────────
 
-function _buildTree(layers) {
+function _buildTree(items) {
   const byId = {};
-  for (const l of layers) byId[l.id] = { layer: l, children: [] };
+  for (const item of items) byId[item.id] = { item, children: [] };
 
   const roots = [];
-  for (let i = layers.length - 1; i >= 0; i--) {
-    const l    = layers[i];
-    const node = byId[l.id];
-    const par  = l.parentId ? byId[l.parentId] : null;
-    if (par) par.children.push(node);
-    else     roots.push(node);
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i];
+    const node = byId[item.id];
+    if (item.parentId && byId[item.parentId]) {
+      byId[item.parentId].children.push(node);
+    } else {
+      roots.push(node);
+    }
   }
   return roots;
 }
@@ -65,25 +66,24 @@ function _buildTree(layers) {
 
 function _versionKey() {
   return JSON.stringify([
-    state.layers.map(l => [
-      l.id, l.name, l.visible, l.locked, l.expanded, l.parentId ?? null,
-      state.activeLayerId,
-      l.shapes.map(s => [s.id, s.type, s._text?.slice(0, 20), s.name, state.selection.has(s.id), s.visible, s.locked]),
+    state.items.map(i => [
+      i.id, i.type, i.name, i.visible, i.locked, i.expanded, i.parentId ?? null,
+      state.activeItemId, state.selection.has(i.id), (i._text ?? '').slice(0, 20),
     ]),
     [..._panelSel].sort(),
   ]);
 }
 
 function _refresh() {
+  if (!_panelBody) return;
   const key = _versionKey();
   if (key === _version) return;
   _version = key;
 
   _panelBody.innerHTML = '';
-  for (const node of _buildTree(state.layers)) {
-    _panelBody.appendChild(_nodeEl(node, 0));
+  for (const node of _buildTree(state.items)) {
+    _panelBody.appendChild(_itemEl(node, 0));
   }
-
   _rebuildFooter();
 }
 
@@ -92,30 +92,18 @@ function _refresh() {
 function _rebuildFooter() {
   _panelFooter.innerHTML = '';
 
-  const items     = _resolveSelected();
-  const hasItems  = items.length > 0;
+  const selected  = _resolveSelected();
+  const hasItems  = selected.length > 0;
 
-  // Vis state of selection: all visible → clicking hides; otherwise → clicking shows
-  const allVis    = hasItems && items.every(it =>
-    it.kind === 'layer' ? it.layer.visible !== false : it.shape.visible !== false);
-  const visIcon   = allVis ? 'visible' : 'hidden';
-  const visTitle  = allVis ? 'Hide selected' : 'Show selected';
+  const allVis    = hasItems && selected.every(it => it.visible !== false);
+  const allLocked = hasItems && selected.every(it => it.locked);
 
-  // Lock state: all locked → clicking unlocks; otherwise → clicking locks
-  const allLocked = hasItems && items.every(it =>
-    it.kind === 'layer' ? it.layer.locked : it.shape.locked);
-  const lockIcon  = allLocked ? 'locked' : 'unlocked';
-  const lockTitle = allLocked ? 'Unlock selected' : 'Lock selected';
+  const addBtn   = _footerBtn('add',                       'Add layer',       _addRootItem);
+  const trashBtn = _footerBtn('trash',                     'Delete selected', _deleteSelected);
+  const visBtn   = _footerBtn(allVis ? 'visible' : 'hidden', allVis ? 'Hide selected' : 'Show selected', _masterToggleVisible);
+  const lockBtn  = _footerBtn(allLocked ? 'locked' : 'unlocked', allLocked ? 'Unlock selected' : 'Lock selected', _masterToggleLock);
 
-  const addBtn   = _footerBtn('add',    'Add layer',       _addRootLayer);
-  const trashBtn = _footerBtn('trash',  'Delete selected', _deleteSelected);
-  const visBtn   = _footerBtn(visIcon,  visTitle,          _masterToggleVisible);
-  const lockBtn  = _footerBtn(lockIcon, lockTitle,         _masterToggleLock);
-
-  // data-drag-action allows mouseup during a drag to target these buttons
   trashBtn.dataset.dragAction = 'delete';
-  // future: copyBtn.dataset.dragAction = 'copy';
-
   lockBtn.classList.add('lp-footer-btn--lock');
   if (allLocked) lockBtn.classList.add('lp-footer-btn--locked');
 
@@ -134,108 +122,153 @@ function _footerBtn(icon, title, handler) {
   return btn;
 }
 
-// ── Render: layer node (recursive) ───────────────────────────────────────────
+// ── Render: unified item row ──────────────────────────────────────────────────
 
-function _nodeEl(node, depth) {
-  const { layer } = node;
+function _itemEl(node, depth) {
+  const { item, children } = node;
+  const isArtboard  = item.type === 'artboard';
+  const isGroup     = item.type === 'group' || isArtboard;
+  const hasChildren = children.length > 0;
+
   const wrap = _el('div', 'lp-node');
-  wrap.dataset.layerId = layer.id;
+  wrap.dataset.itemId = item.id;
 
-  const header = _el('div', 'lp-layer');
-  header.dataset.layerId = layer.id;
-  header.style.paddingLeft = (depth * INDENT_PX + 4) + 'px';
-  if (layer.id === state.activeLayerId)        header.classList.add('lp-layer--active');
-  if (_panelSel.has('layer:' + layer.id))      header.classList.add('lp-layer--panel-selected');
-  if (!effectiveVisible(layer))                header.classList.add('lp-layer--eff-hidden');
-  if (effectiveLocked(layer) && !layer.locked) header.classList.add('lp-layer--eff-locked');
+  const row = _el('div', isGroup ? 'lp-layer' : 'lp-shape');
+  row.dataset.itemId  = item.id;
+  row.style.paddingLeft = (depth * INDENT_PX + (isGroup ? 4 : 20)) + 'px';
 
-  const chevron = _el('button', 'lp-expand');
-  chevron.appendChild(getIconSync('ui', 'chevron'));
-  if (layer.expanded) chevron.classList.add('lp-expand--open');
-  chevron.addEventListener('click', e => {
-    e.stopPropagation();
-    layer.expanded = !layer.expanded;
-    _version = null;
-    _refresh();
-  });
+  if (isGroup && item.id === state.activeItemId)  row.classList.add('lp-layer--active');
+  if (isArtboard)                                 row.classList.add('lp-layer--artboard');
+  if (_panelSel.has('item:' + item.id))           row.classList.add(isGroup ? 'lp-layer--panel-selected' : 'lp-shape--selected');
+  if (!isGroup && state.selection.has(item.id))   row.classList.add('lp-shape--selected');
+  if (!effectiveVisible(item))                    row.classList.add(isGroup ? 'lp-layer--eff-hidden' : 'lp-shape--hidden');
+  if (isGroup && effectiveLocked(item) && !item.locked) row.classList.add('lp-layer--eff-locked');
 
+  // Expand chevron
+  if (isGroup || hasChildren) {
+    const chevron = _el('button', 'lp-expand');
+    chevron.appendChild(getIconSync('ui', 'chevron'));
+    if (item.expanded) chevron.classList.add('lp-expand--open');
+    chevron.addEventListener('click', e => {
+      e.stopPropagation();
+      item.expanded = !item.expanded;
+      _version = null;
+      _refresh();
+    });
+    row.appendChild(chevron);
+  } else {
+    const spacer = _el('span', '');
+    spacer.style.cssText = 'width:16px;flex-shrink:0;display:inline-block;';
+    row.appendChild(spacer);
+  }
+
+  // Icon: artboard and display items get type icons; plain groups do not
+  if (!isGroup || isArtboard) {
+    const icon = _el('span', 'lp-shape__icon');
+    icon.appendChild(getIconSync('objects', `object-${item.type}`));
+    row.appendChild(icon);
+  }
+
+  // Name
   const nameEl = _el('span', 'lp-row__name');
-  nameEl.textContent = layer.name;
+  nameEl.textContent = _itemName(item);
+  if (isGroup) nameEl.style.fontWeight = '500';
+  row.appendChild(nameEl);
 
+  // Actions
   const actions = _el('span', 'lp-layer__actions');
 
-  const addSubBtn = _el('button', 'lp-btn');
-  addSubBtn.title = 'Add sub-layer';
-  addSubBtn.appendChild(getIconSync('ui', 'add'));
-  addSubBtn.addEventListener('click', e => { e.stopPropagation(); _addSubLayer(layer); });
+  if (item.type === 'group') {
+    const addSubBtn = _el('button', 'lp-btn');
+    addSubBtn.title = 'Add sub-layer';
+    addSubBtn.appendChild(getIconSync('ui', 'add'));
+    addSubBtn.addEventListener('click', e => { e.stopPropagation(); _addSubItem(item); });
+    actions.appendChild(addSubBtn);
+  }
+  if (isArtboard) {
+    const addLayerBtn = _el('button', 'lp-btn');
+    addLayerBtn.title = 'Add layer';
+    addLayerBtn.appendChild(getIconSync('ui', 'add'));
+    addLayerBtn.addEventListener('click', e => { e.stopPropagation(); _addSubItem(item); });
+    actions.appendChild(addLayerBtn);
+  }
 
   const visBtn = _el('button', 'lp-btn');
-  visBtn.title = layer.visible ? 'Hide' : 'Show';
-  visBtn.appendChild(getIconSync('ui', layer.visible ? 'visible' : 'hidden'));
-  if (!layer.visible) visBtn.classList.add('lp-btn--is-hidden');
+  visBtn.title = item.visible ? 'Hide' : 'Show';
+  visBtn.appendChild(getIconSync('ui', item.visible ? 'visible' : 'hidden'));
+  if (!item.visible) visBtn.classList.add('lp-btn--is-hidden');
   visBtn.addEventListener('click', e => {
     e.stopPropagation();
-    layer.visible = !layer.visible;
+    item.visible = !item.visible;
     _version = null;
     render();
   });
 
   const lockBtn = _el('button', 'lp-btn lp-btn--lock');
-  lockBtn.title = layer.locked ? 'Unlock' : 'Lock';
-  lockBtn.appendChild(getIconSync('ui', layer.locked ? 'locked' : 'unlocked'));
-  if (layer.locked) lockBtn.classList.add('lp-btn--is-locked');
+  lockBtn.title = item.locked ? 'Unlock' : 'Lock';
+  lockBtn.appendChild(getIconSync('ui', item.locked ? 'locked' : 'unlocked'));
+  if (item.locked) lockBtn.classList.add('lp-btn--is-locked');
   lockBtn.addEventListener('click', e => {
     e.stopPropagation();
-    layer.locked = !layer.locked;
+    item.locked = !item.locked;
     _version = null;
     _refresh();
   });
 
-  actions.append(addSubBtn, visBtn, lockBtn);
-  header.append(chevron, nameEl, actions);
+  actions.append(visBtn, lockBtn);
+  row.appendChild(actions);
 
-  header.addEventListener('dblclick', e => {
+  row.addEventListener('dblclick', e => {
     if (e.target.closest('button')) return;
     e.stopPropagation();
-    _editLayerName(layer, nameEl);
+    _editItemName(item, nameEl);
   });
 
-  header.addEventListener('click', e => {
+  row.addEventListener('click', e => {
+    if (_didDrag) return;
     if (e.target.closest('button')) return;
-    const key = 'layer:' + layer.id;
+    const key = 'item:' + item.id;
     if (e.shiftKey) {
       _rangeSelect(key);
+      if (!isGroup) state.selection = _panelDisplaySelection();
     } else if (e.metaKey || e.ctrlKey) {
-      _toggleSel('layer', layer.id);
+      _toggleSel(item.id);
       _anchor = key;
+      if (!isGroup) {
+        const sel = new Set(state.selection);
+        sel.has(item.id) ? sel.delete(item.id) : sel.add(item.id);
+        state.selection = sel;
+      }
     } else {
       _panelSel.clear();
       _panelSel.add(key);
-      state.activeLayerId = layer.id;
       _anchor = key;
+      if (isGroup) {
+        state.activeItemId = item.id;
+      } else {
+        state.selection = new Set([item.id]);
+      }
     }
-    _refresh(); // versionKey diff drives rebuild — no forced invalidation
+    emit('selection-change');
+    render();
   });
 
-  header.addEventListener('mousedown', e => {
+  row.addEventListener('mousedown', e => {
     if (e.button !== 0 || e.target.closest('button')) return;
-    _startLayerDrag(e, layer, header, wrap);
+    _startDrag(e, item, row, wrap);
   });
 
-  wrap.appendChild(header);
+  wrap.appendChild(row);
 
-  if (layer.expanded) {
+  // Children
+  if ((isGroup || hasChildren) && item.expanded !== false) {
     const body = _el('div', 'lp-body');
 
-    for (let i = layer.shapes.length - 1; i >= 0; i--) {
-      body.appendChild(_shapeEl(layer.shapes[i], layer, depth));
+    for (const child of children) {
+      body.appendChild(_itemEl(child, depth + 1));
     }
 
-    for (const child of node.children) {
-      body.appendChild(_nodeEl(child, depth + 1));
-    }
-
-    if (layer.shapes.length === 0 && node.children.length === 0) {
+    if (children.length === 0 && isGroup) {
       const empty = _el('div', 'lp-empty');
       empty.textContent = 'Empty layer';
       body.appendChild(empty);
@@ -247,120 +280,31 @@ function _nodeEl(node, depth) {
   return wrap;
 }
 
-// ── Render: shape row ─────────────────────────────────────────────────────────
-
-function _shapeEl(shape, layer, layerDepth) {
-  const row = _el('div', 'lp-shape');
-  row.dataset.shapeId = shape.id;
-  row.dataset.layerId = layer.id;
-  row.style.paddingLeft = ((layerDepth + 1) * INDENT_PX + 20) + 'px';
-
-  const panelSelected = _panelSel.has('shape:' + shape.id);
-  if (panelSelected || state.selection.has(shape.id)) row.classList.add('lp-shape--selected');
-  if (shape.visible === false)                         row.classList.add('lp-shape--hidden');
-
-  const icon = _el('span', 'lp-shape__icon');
-  icon.appendChild(getIconSync('objects', `object-${shape.type}`));
-
-  const name = _el('span', 'lp-row__name');
-  name.textContent = _shapeName(shape);
-
-  const actions = _el('span', 'lp-layer__actions');
-
-  const visBtn = _el('button', 'lp-btn');
-  visBtn.title = shape.visible === false ? 'Show' : 'Hide';
-  visBtn.appendChild(getIconSync('ui', shape.visible === false ? 'hidden' : 'visible'));
-  if (shape.visible === false) visBtn.classList.add('lp-btn--is-hidden');
-  visBtn.addEventListener('click', e => {
-    e.stopPropagation();
-    shape.visible = shape.visible === false ? true : false;
-    _version = null;
-    render();
-  });
-
-  const lockBtn = _el('button', 'lp-btn lp-btn--lock');
-  lockBtn.title = shape.locked ? 'Unlock' : 'Lock';
-  lockBtn.appendChild(getIconSync('ui', shape.locked ? 'locked' : 'unlocked'));
-  if (shape.locked) lockBtn.classList.add('lp-btn--is-locked');
-  lockBtn.addEventListener('click', e => {
-    e.stopPropagation();
-    shape.locked = !shape.locked;
-    _version = null;
-    _refresh();
-  });
-
-  actions.append(visBtn, lockBtn);
-  row.append(icon, name, actions);
-
-  row.addEventListener('dblclick', e => {
-    if (e.target.closest('button')) return;
-    e.stopPropagation();
-    _editShapeName(shape, name);
-  });
-
-  row.addEventListener('click', e => {
-    if (_didDrag) return;
-    if (e.target.closest('button')) return;
-    const key = 'shape:' + shape.id;
-    if (e.shiftKey) {
-      _rangeSelect(key);
-      state.selection = _panelShapeSelection();
-    } else if (e.metaKey || e.ctrlKey) {
-      _toggleSel('shape', shape.id);
-      _anchor = key;
-      const sel = new Set(state.selection);
-      sel.has(shape.id) ? sel.delete(shape.id) : sel.add(shape.id);
-      state.selection = sel;
-    } else {
-      _panelSel.clear();
-      _panelSel.add(key);
-      _anchor = key;
-      state.selection = new Set([shape.id]);
-    }
-    emit('selection-change');
-    render();
-  });
-
-  row.addEventListener('mousedown', e => {
-    if (e.button !== 0) return;
-    _startShapeDrag(e, shape, layer, row);
-  });
-
-  return row;
-}
-
-function _shapeName(shape) {
-  if (shape.name) return shape.name;
-  if (shape.type === 'text-line' || shape.type === 'text-block') {
-    if (shape._text?.trim()) return shape._text.slice(0, 28);
-    return shape.type === 'text-line' ? 'Text' : 'Text Block';
+function _itemName(item) {
+  if (item.name) return item.name;
+  if (item.type === 'text-line' || item.type === 'text-block') {
+    if (item._text?.trim()) return item._text.slice(0, 28);
+    return item.type === 'text-line' ? 'Text' : 'Text Block';
   }
-  const labels = { path: 'Path', rect: 'Rect', ellipse: 'Ellipse', group: 'Group' };
-  return labels[shape.type] ?? shape.type;
+  return { path: 'Path', group: 'Group', artboard: 'Artboard' }[item.type] ?? item.type;
 }
 
 // ── Panel selection helpers ───────────────────────────────────────────────────
 
-function _toggleSel(kind, id) {
-  const k = kind + ':' + id;
+function _toggleSel(id) {
+  const k = 'item:' + id;
   _panelSel.has(k) ? _panelSel.delete(k) : _panelSel.add(k);
 }
 
-// Walk visible rows in DOM order and return their selection keys.
 function _rowKeys() {
-  const rows = _panelBody.querySelectorAll('.lp-layer[data-layer-id], .lp-shape[data-shape-id]');
-  return [...rows].map(el =>
-    el.classList.contains('lp-shape')
-      ? 'shape:' + el.dataset.shapeId
-      : 'layer:' + el.dataset.layerId
-  );
+  return [..._panelBody.querySelectorAll('.lp-layer[data-item-id], .lp-shape[data-item-id]')]
+    .map(el => 'item:' + el.dataset.itemId);
 }
 
-// Select all rows between _anchor and targetKey (inclusive), replacing selection.
 function _rangeSelect(targetKey) {
-  const keys       = _rowKeys();
-  const anchorIdx  = _anchor ? keys.indexOf(_anchor) : -1;
-  const targetIdx  = keys.indexOf(targetKey);
+  const keys      = _rowKeys();
+  const anchorIdx = _anchor ? keys.indexOf(_anchor) : -1;
+  const targetIdx = keys.indexOf(targetKey);
 
   if (anchorIdx < 0 || targetIdx < 0) {
     _panelSel.clear();
@@ -374,96 +318,76 @@ function _rangeSelect(targetKey) {
   for (let i = from; i <= to; i++) _panelSel.add(keys[i]);
 }
 
-// Derive canvas selection from shape keys currently in _panelSel.
-function _panelShapeSelection() {
+function _panelDisplaySelection() {
   const ids = new Set();
   for (const k of _panelSel) {
-    if (k.startsWith('shape:')) ids.add(k.slice(6));
+    if (k.startsWith('item:')) {
+      const id   = k.slice(5);
+      const item = findItem(id);
+      if (item && item.type !== 'group' && item.type !== 'artboard') ids.add(id);
+    }
   }
   return ids;
 }
 
 function _resolveSelected() {
-  const items = [];
-  for (const key of _panelSel) {
-    const i    = key.indexOf(':');
-    const kind = key.slice(0, i);
-    const id   = key.slice(i + 1);
-    if (kind === 'layer') {
-      const layer = state.layers.find(l => l.id === id);
-      if (layer) items.push({ kind: 'layer', layer });
-    } else {
-      for (const layer of state.layers) {
-        const shape = layer.shapes.find(s => s.id === id);
-        if (shape) { items.push({ kind: 'shape', shape, layer }); break; }
-      }
+  const result = [];
+  for (const k of _panelSel) {
+    if (k.startsWith('item:')) {
+      const item = findItem(k.slice(5));
+      if (item) result.push(item);
     }
   }
-  return items;
+  return result;
 }
 
-// When canvas selection changes externally, mirror it into _panelSel so footer
-// actions operate on the same set the user sees highlighted in the panel.
 function _syncPanelSelFromCanvas() {
-  // Drop any stale shape keys, keep layer keys (they have no canvas equivalent).
-  for (const k of _panelSel) {
-    if (k.startsWith('shape:')) _panelSel.delete(k);
+  for (const k of [..._panelSel]) {
+    if (k.startsWith('item:')) {
+      const item = findItem(k.slice(5));
+      if (item && item.type !== 'group' && item.type !== 'artboard') _panelSel.delete(k);
+    }
   }
   for (const id of state.selection) {
-    _panelSel.add('shape:' + id);
+    _panelSel.add('item:' + id);
   }
 }
 
 // ── Footer bulk actions ───────────────────────────────────────────────────────
 
 function _deleteSelected() {
-  const items = _resolveSelected();
+  const items = _resolveSelected().filter(i => i.type !== 'artboard');
   if (!items.length) return;
 
-  // Collect layer IDs to delete, expanding to include all descendants
-  const layerIds = new Set(
-    items.filter(it => it.kind === 'layer').map(it => it.layer.id)
-  );
-  const addDescendants = id => {
-    for (const l of state.layers) {
-      if (l.parentId === id && !layerIds.has(l.id)) {
-        layerIds.add(l.id);
-        addDescendants(l.id);
+  const toDelete = new Set(items.map(i => i.id));
+  const addDesc  = id => {
+    for (const item of state.items) {
+      if (item.parentId === id && !toDelete.has(item.id)) {
+        toDelete.add(item.id);
+        addDesc(item.id);
       }
     }
   };
-  for (const id of [...layerIds]) addDescendants(id);
+  for (const id of [...toDelete]) addDesc(id);
 
-  // Shapes to delete — only those not already in layers being deleted
-  const shapeRemovals = items
-    .filter(it => it.kind === 'shape' && !layerIds.has(it.layer.id))
-    .map(it => ({ shape: it.shape, layer: it.layer }));
-
-  // Snapshots for undo
-  const oldLayers = [...state.layers];
-  const oldShapes = new Map(state.layers.map(l => [l.id, [...l.shapes]]));
-  const oldActive = state.activeLayerId;
+  const oldItems  = [...state.items];
+  const oldActive = state.activeItemId;
 
   execute({
     do() {
-      for (const { shape, layer } of shapeRemovals) {
-        layer.shapes = layer.shapes.filter(s => s !== shape);
-      }
-      state.layers = state.layers.filter(l => !layerIds.has(l.id));
-      if (layerIds.has(state.activeLayerId)) {
-        state.activeLayerId = state.layers[state.layers.length - 1]?.id ?? null;
+      state.items = state.items.filter(i => !toDelete.has(i.id));
+      sanitizeItems(state.items);
+      if (toDelete.has(state.activeItemId)) {
+        state.activeItemId = state.items.find(i => i.parentId === null && i.type === 'group')?.id
+          ?? state.items[0]?.id;
       }
       _panelSel.clear();
       _version = null;
       render();
     },
     undo() {
-      state.layers = oldLayers;
-      for (const [id, shapes] of oldShapes) {
-        const l = state.layers.find(l => l.id === id);
-        if (l) l.shapes = shapes;
-      }
-      state.activeLayerId = oldActive;
+      state.items        = oldItems;
+      state.activeItemId = oldActive;
       _version = null;
       render();
     },
@@ -474,29 +398,13 @@ function _masterToggleVisible() {
   const items = _resolveSelected();
   if (!items.length) return;
 
-  const allVisible = items.every(it =>
-    it.kind === 'layer' ? it.layer.visible !== false : it.shape.visible !== false);
-  const target = !allVisible;
-
-  const snaps = items.map(it => ({
-    ...it, was: it.kind === 'layer' ? it.layer.visible : it.shape.visible,
-  }));
+  const allVis = items.every(it => it.visible !== false);
+  const target = !allVis;
+  const snaps  = items.map(it => ({ it, was: it.visible }));
 
   execute({
-    do() {
-      for (const it of items) {
-        if (it.kind === 'layer') it.layer.visible = target;
-        else it.shape.visible = target;
-      }
-      _version = null; render();
-    },
-    undo() {
-      for (const s of snaps) {
-        if (s.kind === 'layer') s.layer.visible = s.was;
-        else s.shape.visible = s.was;
-      }
-      _version = null; render();
-    },
+    do()   { for (const { it } of snaps) it.visible = target;   _version = null; render(); },
+    undo() { for (const { it, was } of snaps) it.visible = was; _version = null; render(); },
   });
 }
 
@@ -504,78 +412,80 @@ function _masterToggleLock() {
   const items = _resolveSelected();
   if (!items.length) return;
 
-  const allLocked = items.every(it =>
-    it.kind === 'layer' ? it.layer.locked : it.shape.locked);
-  const target = !allLocked;
+  const allLocked = items.every(it => it.locked);
+  const target    = !allLocked;
+  const snaps     = items.map(it => ({ it, was: it.locked }));
 
-  const snaps = items.map(it => ({
-    ...it, was: it.kind === 'layer' ? it.layer.locked : it.shape.locked,
-  }));
+  execute({
+    do()   { for (const { it } of snaps) it.locked = target;   _version = null; render(); },
+    undo() { for (const { it, was } of snaps) it.locked = was; _version = null; render(); },
+  });
+}
 
+// ── Item operations ───────────────────────────────────────────────────────────
+
+function _addRootItem() {
+  // Add a layer inside the first artboard; root-level groups have no artboard parent
+  const artboard  = state.items.find(i => i.type === 'artboard');
+  const parentId  = artboard?.id ?? null;
+  const item      = _makeGroup(`Layer ${state.items.filter(i => i.type === 'group').length + 1}`, parentId);
+  const oldActive = state.activeItemId;
+  const wasExpanded = artboard?.expanded;
   execute({
     do() {
-      for (const it of items) {
-        if (it.kind === 'layer') it.layer.locked = target;
-        else it.shape.locked = target;
-      }
-      _version = null; render();
+      state.items.push(item);
+      state.activeItemId = item.id;
+      if (artboard) artboard.expanded = true;
+      render();
     },
     undo() {
-      for (const s of snaps) {
-        if (s.kind === 'layer') s.layer.locked = s.was;
-        else s.shape.locked = s.was;
-      }
-      _version = null; render();
+      state.items = state.items.filter(i => i.id !== item.id);
+      state.activeItemId = oldActive;
+      if (artboard) artboard.expanded = wasExpanded;
+      render();
     },
   });
 }
 
-// ── Layer operations ──────────────────────────────────────────────────────────
-
-function _addRootLayer() {
-  const layer   = _makeLayer(`Layer ${state.layers.length + 1}`, null);
-  const oldActive = state.activeLayerId;
-  execute({
-    do()   { state.layers.push(layer); state.activeLayerId = layer.id; render(); },
-    undo() { state.layers = state.layers.filter(l => l.id !== layer.id); state.activeLayerId = oldActive; render(); },
-  });
-}
-
-function _addSubLayer(parent) {
-  const layer     = _makeLayer(`Layer ${state.layers.length + 1}`, parent.id);
+function _addSubItem(parent) {
+  const item        = _makeGroup(`Layer ${state.items.filter(i => i.type === 'group').length + 1}`, parent.id);
   const wasExpanded = parent.expanded;
-  const oldActive   = state.activeLayerId;
+  const oldActive   = state.activeItemId;
   execute({
     do() {
-      state.layers.push(layer);
-      state.activeLayerId = layer.id;
-      parent.expanded = true;
+      state.items.push(item);
+      state.activeItemId = item.id;
+      parent.expanded    = true;
       render();
     },
     undo() {
-      state.layers = state.layers.filter(l => l.id !== layer.id);
-      state.activeLayerId = oldActive;
-      parent.expanded = wasExpanded;
+      state.items        = state.items.filter(i => i.id !== item.id);
+      state.activeItemId = oldActive;
+      parent.expanded    = wasExpanded;
       render();
     },
   });
 }
 
-function _makeLayer(name, parentId) {
-  return { id: nextId('layer'), name, visible: true, locked: false, expanded: true, parentId: parentId ?? null, shapes: [] };
+function _makeGroup(name, parentId) {
+  return { id: nextId('item'), type: 'group', name, visible: true, locked: false, expanded: true, parentId: parentId ?? null };
 }
 
-function _editLayerName(layer, nameEl) {
+function _editItemName(item, nameEl) {
   const input = _el('input', 'lp-row__name lp-name-input');
-  input.value = layer.name;
+  input.value = item.name ?? _itemName(item);
   nameEl.replaceWith(input);
   input.focus();
   input.select();
   let cancelled = false;
-  const commit = () => {
+  const commit  = () => {
     if (cancelled) return;
     const val = sanitizeName(input.value);
-    if (val) layer.name = val;
+    if (item.type === 'group') {
+      if (val) item.name = val;
+    } else {
+      item.name = val || undefined;
+    }
     _version = null;
     _refresh();
   };
@@ -587,75 +497,132 @@ function _editLayerName(layer, nameEl) {
   });
 }
 
-function _editShapeName(shape, nameEl) {
-  const input = _el('input', 'lp-row__name lp-name-input');
-  input.value = shape.name ?? _shapeName(shape);
-  nameEl.replaceWith(input);
-  input.focus();
-  input.select();
-  let cancelled = false;
-  const commit = () => {
-    if (cancelled) return;
-    const val = sanitizeName(input.value);
-    // Clear name if the user empties it — fall back to auto-name
-    shape.name = val || undefined;
-    _version = null;
-    _refresh();
+// ── Drag constants ────────────────────────────────────────────────────────────
+
+const _SCROLL_BUMPER = 25;
+const _SCROLL_SPEED  = 5;
+
+// ── Drag start ────────────────────────────────────────────────────────────────
+
+function _startDrag(e, item, rowEl, nodeEl) {
+  e.preventDefault();
+  _drag = {
+    item, rowEl, hideEl: nodeEl,
+    startX: e.clientX, startY: e.clientY,
+    grabOffsetY: 0, itemHeight: 0, ghost: null,
+    moved: false, _lastE: null,
+    autoScrollDir: 0, autoScrollRaf: null,
   };
-  input.addEventListener('blur', commit);
-  input.addEventListener('keydown', e => {
-    if (e.key === 'Enter')  { e.preventDefault(); commit(); }
-    if (e.key === 'Escape') { cancelled = true; _version = null; _refresh(); }
-    e.stopPropagation();
-  });
 }
 
-// ── Shape drag-and-drop ───────────────────────────────────────────────────────
-
-function _startShapeDrag(e, shape, layer) {
-  e.preventDefault();
-  _drag = { type: 'shape', shape, fromLayer: layer, startX: e.clientX, startY: e.clientY, moved: false };
-}
-
-function _startLayerDrag(e, layer) {
-  e.preventDefault();
-  _drag = { type: 'layer', layer, startX: e.clientX, startY: e.clientY, moved: false };
-}
+// ── Drag move / up ────────────────────────────────────────────────────────────
 
 function _onDragMove(e) {
   if (!_drag) return;
   const dx = e.clientX - _drag.startX;
   const dy = e.clientY - _drag.startY;
-  if (!_drag.moved && dx * dx + dy * dy < 25) return;
-  _drag.moved = true;
-  _didDrag    = true;
 
-  if (_drag.type === 'shape') _updateShapeDrop(e);
-  else                        _updateLayerDrop(e);
+  if (!_drag.moved) {
+    if (dx * dx + dy * dy < 25) return;
+    _drag.moved = true;
+    _didDrag    = true;
+    _activateDrag(e);
+  }
+
+  _drag._lastE = e;
+  _updateGhostPosition(e);
+  _updateDropIndicator(e);
+  _updateAutoScroll(e);
 }
 
 function _onDragUp(e) {
   if (!_drag) return;
   const moved = _drag.moved;
+
   if (moved) {
-    if (_drag.type === 'shape') _commitShapeDrop(e);
-    else                        _commitLayerDrop(e);
+    const footerEl = e.target.closest('[data-drag-action]');
+    if (footerEl?.dataset.dragAction === 'delete') {
+      _deleteDraggedItem();
+    } else {
+      _commitDrop(e);
+    }
   }
-  _drag = null;
-  _clearDrop();
+
+  _cleanupDrag();
   if (moved) setTimeout(() => { _didDrag = false; }, 0);
   else       _didDrag = false;
 }
 
-// ── Shape drop ────────────────────────────────────────────────────────────────
+// ── Ghost ─────────────────────────────────────────────────────────────────────
 
-function _updateShapeDrop(e) {
+function _activateDrag(e) {
+  const r           = _drag.rowEl.getBoundingClientRect();
+  _drag.grabOffsetY = e.clientY - r.top;
+  _drag.itemHeight  = r.height;
+
+  const ghost         = _drag.rowEl.cloneNode(true);
+  ghost.classList.add('lp-drag-ghost');
+  ghost.style.cssText = `position:fixed;left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px;pointer-events:none;z-index:9999;`;
+  document.body.appendChild(ghost);
+  _drag.ghost = ghost;
+
+  _drag.hideEl.style.display = 'none';
+}
+
+function _updateGhostPosition(e) {
+  if (_drag.ghost) _drag.ghost.style.top = (e.clientY - _drag.grabOffsetY) + 'px';
+}
+
+function _cleanupDrag() {
+  if (!_drag) return;
+  _drag.ghost?.remove();
+  if (_drag.hideEl) _drag.hideEl.style.display = '';
+  if (_drag.autoScrollRaf) cancelAnimationFrame(_drag.autoScrollRaf);
+  _drag = null;
   _clearDrop();
-  const target = _findShapeDropTarget(e);
-  if (!target) return;
+}
+
+// ── Needle / insertion point ──────────────────────────────────────────────────
+
+function _calcNeedleY(e) {
+  return e.clientY - _drag.grabOffsetY + _drag.itemHeight / 2;
+}
+
+function _calcInsertionPoint(e) {
+  const needleY = _calcNeedleY(e);
+  const rows    = [..._panelBody.querySelectorAll('.lp-layer[data-item-id], .lp-shape[data-item-id]')]
+    .filter(el => !_drag.hideEl.contains(el) && el.style.display !== 'none');
+
+  if (!rows.length) return null;
+
+  for (const row of rows) {
+    const r       = row.getBoundingClientRect();
+    const isGroup = row.classList.contains('lp-layer');
+
+    if (isGroup) {
+      if (needleY < r.top + r.height * 0.25)
+        return { position: 'before', refEl: row, targetItemId: row.dataset.itemId };
+      if (needleY < r.top + r.height * 0.75)
+        return { position: 'into',   refEl: row, targetItemId: row.dataset.itemId };
+    } else {
+      if (needleY < r.top + r.height / 2)
+        return { position: 'before', refEl: row, targetItemId: row.dataset.itemId };
+    }
+  }
+  const last = rows[rows.length - 1];
+  return { position: 'after', refEl: last, targetItemId: last.dataset.itemId };
+}
+
+// ── Drop indicator ────────────────────────────────────────────────────────────
+
+function _updateDropIndicator(e) {
+  _clearDrop();
+  if (!_drag.ghost) return;
+  const target = _calcInsertionPoint(e);
+  if (!target?.refEl) return;
 
   if (target.position === 'into') {
-    target.headerEl.classList.add('lp-layer--drop');
+    target.refEl.classList.add('lp-layer--drop');
   } else {
     _dropLineEl = _el('div', 'lp-drop-line');
     target.refEl.insertAdjacentElement(
@@ -665,179 +632,116 @@ function _updateShapeDrop(e) {
   }
 }
 
-function _findShapeDropTarget(e) {
-  const dragId    = _drag.shape.id;
-  const panelRect = _panelBody.getBoundingClientRect();
-  if (e.clientY < panelRect.top || e.clientY > panelRect.bottom) return null;
+// ── Auto-scroll ───────────────────────────────────────────────────────────────
 
-  const shapeRows    = [..._panelBody.querySelectorAll('.lp-shape')];
-  const layerHeaders = [..._panelBody.querySelectorAll('.lp-layer')];
+function _updateAutoScroll(e) {
+  const pr  = _panelBody.getBoundingClientRect();
+  let   dir = 0;
+  if (e.clientY < pr.top + _SCROLL_BUMPER)         dir = -1;
+  else if (e.clientY > pr.bottom - _SCROLL_BUMPER) dir =  1;
 
-  // Direct hit: shape row
-  for (const row of shapeRows) {
-    if (row.dataset.shapeId === dragId) continue;
-    const r = row.getBoundingClientRect();
-    if (e.clientY >= r.top && e.clientY <= r.bottom) {
-      return { position: e.clientY < r.top + r.height / 2 ? 'before' : 'after',
-               refEl: row, targetLayerId: row.dataset.layerId, targetShapeId: row.dataset.shapeId };
-    }
+  if (dir !== _drag.autoScrollDir) {
+    _drag.autoScrollDir = dir;
+    if (dir !== 0 && _drag.autoScrollRaf === null) _runAutoScroll();
   }
-
-  // Direct hit: layer header → drop into layer
-  for (const header of layerHeaders) {
-    const r = header.getBoundingClientRect();
-    if (e.clientY >= r.top && e.clientY <= r.bottom) {
-      return { position: 'into', headerEl: header,
-               targetLayerId: header.closest('.lp-node')?.dataset.layerId };
-    }
-  }
-
-  // Gap between rows: find the nearest shape row by proximity and snap to its edge.
-  let best = null;
-  let bestDist = Infinity;
-  for (const row of shapeRows) {
-    if (row.dataset.shapeId === dragId) continue;
-    const r = row.getBoundingClientRect();
-    if (r.bottom <= e.clientY) {
-      const dist = e.clientY - r.bottom;
-      if (dist < bestDist) {
-        bestDist = dist;
-        best = { position: 'after', refEl: row,
-                 targetLayerId: row.dataset.layerId, targetShapeId: row.dataset.shapeId };
-      }
-    } else if (r.top >= e.clientY) {
-      const dist = r.top - e.clientY;
-      if (dist < bestDist) {
-        bestDist = dist;
-        best = { position: 'before', refEl: row,
-                 targetLayerId: row.dataset.layerId, targetShapeId: row.dataset.shapeId };
-      }
-    }
-  }
-  return best;
 }
 
-function _commitShapeDrop(e) {
-  const target = _findShapeDropTarget(e);
-  if (!target?.targetLayerId) return;
+function _runAutoScroll() {
+  if (!_drag || _drag.autoScrollDir === 0) { if (_drag) _drag.autoScrollRaf = null; return; }
+  _panelBody.scrollTop += _drag.autoScrollDir * _SCROLL_SPEED;
+  if (_drag._lastE) _updateDropIndicator(_drag._lastE);
+  _drag.autoScrollRaf = requestAnimationFrame(_runAutoScroll);
+}
 
-  const { shape, fromLayer } = _drag;
-  const toLayer = state.layers.find(l => l.id === target.targetLayerId);
-  if (!toLayer) return;
+// ── Drop commit ───────────────────────────────────────────────────────────────
 
-  const fromSnap = [...fromLayer.shapes];
-  const toSnap   = fromLayer === toLayer ? null : [...toLayer.shapes];
+function _commitDrop(e) {
+  const target = _calcInsertionPoint(e);
+  if (!target?.targetItemId) return;
 
-  const newFrom = fromLayer.shapes.filter(s => s !== shape);
-  let   newTo;
+  const { item }   = _drag;
+  const targetItem = findItem(target.targetItemId);
+  if (!targetItem || targetItem.id === item.id) return;
 
+  if (target.position === 'into' && _isDescendant(targetItem, item)) return;
+
+  const oldItems    = [...state.items];
+  const oldParentId = item.parentId;
+  const oldExpanded = targetItem.expanded;
+
+  const subtree  = _collectSubtree(item);
+  const newItems = state.items.filter(i => !subtree.includes(i));
+
+  let newParentId, insertAt;
   if (target.position === 'into') {
-    newTo = fromLayer === toLayer
-      ? [...newFrom, shape]
-      : [...toLayer.shapes, shape];
+    newParentId = targetItem.id;
+    insertAt    = newItems.indexOf(targetItem) + 1;
   } else {
-    const base        = fromLayer === toLayer ? newFrom : [...toLayer.shapes];
-    const targetShape = base.find(s => s.id === target.targetShapeId);
-    const idx         = base.indexOf(targetShape);
-    if (idx < 0) return;
-    const insertAt    = target.position === 'before' ? idx + 1 : idx;
-    newTo             = [...base];
-    newTo.splice(insertAt, 0, shape);
+    newParentId = targetItem.parentId ?? null;
+    const tIdx  = newItems.indexOf(targetItem);
+    insertAt    = target.position === 'before' ? tIdx + 1 : tIdx;
   }
+  newItems.splice(insertAt, 0, ...subtree);
 
-  if (fromLayer === toLayer && arraysEqual(fromLayer.shapes, newTo)) return;
+  if (_arraysEqual(state.items, newItems) && item.parentId === newParentId) return;
 
   execute({
     do() {
-      fromLayer.shapes = fromLayer === toLayer ? newTo : newFrom;
-      if (toSnap !== null) toLayer.shapes = newTo;
-      _version = null;
-      render();
+      state.items   = newItems;
+      item.parentId = newParentId;
+      if (target.position === 'into') targetItem.expanded = true;
+      _version = null; render();
     },
     undo() {
-      fromLayer.shapes = fromSnap;
-      if (toSnap !== null) toLayer.shapes = toSnap;
-      _version = null;
-      render();
+      state.items   = oldItems;
+      item.parentId = oldParentId;
+      if (target.position === 'into') targetItem.expanded = oldExpanded;
+      _version = null; render();
     },
   });
 }
 
-// ── Layer drag-to-reorder ─────────────────────────────────────────────────────
-
-function _updateLayerDrop(e) {
-  _clearDrop();
-  const target = _findLayerDropTarget(e);
-  if (!target) return;
-  _dropLineEl = _el('div', 'lp-drop-line');
-  target.refEl.insertAdjacentElement(
-    target.position === 'before' ? 'beforebegin' : 'afterend',
-    _dropLineEl,
-  );
+function _collectSubtree(item) {
+  const result = [item];
+  for (const i of state.items) {
+    if (i.parentId === item.id) result.push(..._collectSubtree(i));
+  }
+  return result;
 }
 
-function _findLayerDropTarget(e) {
-  const dragId    = _drag.layer.id;
-  const panelRect = _panelBody.getBoundingClientRect();
-  if (e.clientY < panelRect.top || e.clientY > panelRect.bottom) return null;
-
-  const headers = [..._panelBody.querySelectorAll('.lp-layer')];
-
-  // Direct hit
-  for (const header of headers) {
-    const node = header.closest('.lp-node');
-    if (!node || node.dataset.layerId === dragId) continue;
-    const r = header.getBoundingClientRect();
-    if (e.clientY >= r.top && e.clientY <= r.bottom) {
-      return { position: e.clientY < r.top + r.height / 2 ? 'before' : 'after',
-               refEl: header, targetLayerId: node.dataset.layerId };
-    }
+function _isDescendant(item, potentialAncestor) {
+  let cur = item;
+  while (cur?.parentId) {
+    if (cur.parentId === potentialAncestor.id) return true;
+    cur = state.items.find(i => i.id === cur.parentId);
   }
-
-  // Gap fallback: snap to nearest layer header edge
-  let best = null;
-  let bestDist = Infinity;
-  for (const header of headers) {
-    const node = header.closest('.lp-node');
-    if (!node || node.dataset.layerId === dragId) continue;
-    const r = header.getBoundingClientRect();
-    if (r.bottom <= e.clientY) {
-      const dist = e.clientY - r.bottom;
-      if (dist < bestDist) {
-        bestDist = dist;
-        best = { position: 'after', refEl: header, targetLayerId: node.dataset.layerId };
-      }
-    } else if (r.top >= e.clientY) {
-      const dist = r.top - e.clientY;
-      if (dist < bestDist) {
-        bestDist = dist;
-        best = { position: 'before', refEl: header, targetLayerId: node.dataset.layerId };
-      }
-    }
-  }
-  return best;
+  return false;
 }
 
-function _commitLayerDrop(e) {
-  const target = _findLayerDropTarget(e);
-  if (!target?.targetLayerId) return;
+// ── Delete dragged item ───────────────────────────────────────────────────────
 
-  const { layer } = _drag;
-  const targetLayer = state.layers.find(l => l.id === target.targetLayerId);
-  if (!targetLayer || targetLayer === layer) return;
-
-  const oldLayers = [...state.layers];
-
-  const newLayers = state.layers.filter(l => l !== layer);
-  const tIdx      = newLayers.indexOf(targetLayer);
-  const insertAt  = target.position === 'before' ? tIdx + 1 : tIdx;
-  newLayers.splice(insertAt, 0, layer);
-
-  if (arraysEqual(state.layers, newLayers)) return;
+function _deleteDraggedItem() {
+  const { item }  = _drag;
+  const subtree   = _collectSubtree(item);
+  const toDelete  = new Set(subtree.map(i => i.id));
+  const oldItems  = [...state.items];
+  const oldActive = state.activeItemId;
 
   execute({
-    do()   { state.layers = newLayers; _version = null; render(); },
-    undo() { state.layers = oldLayers; _version = null; render(); },
+    do() {
+      state.items = state.items.filter(i => !toDelete.has(i.id));
+      sanitizeItems(state.items);
+      if (toDelete.has(state.activeItemId)) {
+        state.activeItemId = state.items.find(i => i.parentId === null && i.type === 'group')?.id
+          ?? state.items[0]?.id;
+      }
+      _panelSel.clear(); _version = null; render();
+    },
+    undo() {
+      state.items        = oldItems;
+      state.activeItemId = oldActive;
+      _version = null; render();
+    },
   });
 }
 
@@ -849,7 +753,7 @@ function _clearDrop() {
   _panelBody?.querySelectorAll('.lp-layer--drop').forEach(el => el.classList.remove('lp-layer--drop'));
 }
 
-function arraysEqual(a, b) {
+function _arraysEqual(a, b) {
   return a.length === b.length && a.every((v, i) => v === b[i]);
 }
 

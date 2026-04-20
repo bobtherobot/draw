@@ -2,7 +2,7 @@
  * Text anchor squares and baseline lines rendered into #text-guides.
  * Exported so the select tool can call renderTextGuides() during drag.
  */
-import { effectiveVisible } from '../core/state.js';
+import { effectiveVisible, allDisplayItems } from '../core/state.js';
 
 const NS   = 'http://www.w3.org/2000/svg';
 const SQ   = 5;  // half-size of origin square (screen px — scaled by 1/zoom)
@@ -14,19 +14,12 @@ const SQ   = 5;  // half-size of origin square (screen px — scaled by 1/zoom)
  * @param {import('../core/state.js').state} state
  */
 export function renderTextGuides(textGuidesGroup, state) {
-  const { layers, viewport: { zoom } } = state;
+  const { viewport: { zoom } } = state;
   const szDoc = SQ / zoom; // square half-size in doc coords
 
-  // Collect all text shapes across all layers
-  const textShapes = [];
-  for (const layer of layers) {
-    if (!effectiveVisible(layer)) continue;
-    for (const shape of layer.shapes) {
-      if (shape.type === 'text-line' || shape.type === 'text-block') {
-        textShapes.push(shape);
-      }
-    }
-  }
+  const textShapes = allDisplayItems().filter(
+    s => (s.type === 'text-line' || s.type === 'text-block') && effectiveVisible(s)
+  );
 
   // Reconcile: key existing elements by data-shape-id
   const existing = new Map();

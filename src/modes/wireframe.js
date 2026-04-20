@@ -1,5 +1,5 @@
 import { Mode } from './base.js';
-import { effectiveVisible } from '../core/state.js';
+import { effectiveVisible, allDisplayItems } from '../core/state.js';
 
 const WIREFRAME_STROKE = '#4a9eff';
 const WIREFRAME_WIDTH  = 1;
@@ -28,20 +28,18 @@ export class WireframeMode extends Mode {
     const NS = 'http://www.w3.org/2000/svg';
     const r  = 3 / state.viewport.zoom;
 
-    for (const layer of state.layers) {
-      if (!effectiveVisible(layer)) continue;
-      for (const shape of layer.shapes) {
-        const ot = getObjectType(shape.type);
-        if (!ot) continue;
-        const pts = ot.getWireframePoints(shape);
-        for (const { x, y } of pts) {
-          const dot = document.createElementNS(NS, 'circle');
-          dot.setAttribute('cx', x);
-          dot.setAttribute('cy', y);
-          dot.setAttribute('r',  r);
-          dot.classList.add('wireframe-node');
-          overlayEl.appendChild(dot);
-        }
+    for (const shape of allDisplayItems()) {
+      if (!effectiveVisible(shape)) continue;
+      const ot = getObjectType(shape.type);
+      if (!ot) continue;
+      const pts = ot.getWireframePoints(shape);
+      for (const { x, y } of pts) {
+        const dot = document.createElementNS(NS, 'circle');
+        dot.setAttribute('cx', x);
+        dot.setAttribute('cy', y);
+        dot.setAttribute('r',  r);
+        dot.classList.add('wireframe-node');
+        overlayEl.appendChild(dot);
       }
     }
   }

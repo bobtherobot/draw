@@ -11,11 +11,10 @@ export class GroupObjectType extends ObjectType {
 
   createShape(initAttrs, initStyle) {
     return {
-      id:       nextId(this.id),
-      type:     'group',
-      attrs:    { ...initAttrs },
-      style:    { ...initStyle },
-      children: initAttrs.children ?? [],
+      id:    nextId(this.id),
+      type:  'group',
+      attrs: { ...initAttrs },
+      style: { ...initStyle },
     };
   }
 
@@ -76,11 +75,10 @@ export class GroupObjectType extends ObjectType {
   fromSVGElement(el) {
     if (el.tagName !== 'g') return null;
     return {
-      id:       nextId(this.id),
-      type:     'group',
-      attrs:    {},
-      style:    {},
-      children: [],
+      id:    nextId(this.id),
+      type:  'group',
+      attrs: {},
+      style: {},
     };
   }
 }

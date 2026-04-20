@@ -71,6 +71,18 @@
     font-weight: 500;
   }
 
+  // Artboard row — visually distinct header
+  &--artboard {
+    height: 30px;
+    border-top: 1px solid var(--theme-border);
+    background: var(--theme-bg-raised);
+
+    &:hover { background: var(--theme-bg-hover); }
+    &.lp-layer--active { background: var(--theme-bg-active); }
+
+    .lp-row__name { color: var(--theme-fg); }
+  }
+
 }
 
 .lp-layer__actions {
@@ -186,6 +198,17 @@
   font-size: @font-size-sm;
   color: var(--theme-fg-disabled);
   font-style: italic;
+}
+
+// ── Drag ghost ────────────────────────────────────────────────────────────────
+
+.lp-drag-ghost {
+  opacity: 0.85;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
+  border-radius: @radius-sm;
+  outline: 1px solid var(--theme-accent);
+  outline-offset: -1px;
+  background: var(--theme-bg-hover);
 }
 
 // ── Drop indicator ────────────────────────────────────────────────────────────

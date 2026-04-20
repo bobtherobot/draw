@@ -198,11 +198,11 @@ export class PenTool extends Tool {
     const ctx   = this._ctx;
     const ot    = ctx.getObjectType('path');
     const shape = ot.createShape({ d }, { ...ctx.state.currentStyle });
-    const layer = ctx.state.layers.find(l => l.id === ctx.state.activeLayerId) ?? ctx.state.layers[0];
+    shape.parentId = ctx.state.activeItemId;
 
     ctx.execute({
-      do()   { layer.shapes.push(shape); ctx.state.selection = new Set([shape.id]); ctx.render(); },
-      undo() { layer.shapes = layer.shapes.filter(s => s.id !== shape.id); ctx.state.selection.clear(); ctx.render(); },
+      do()   { ctx.state.items.push(shape); ctx.state.selection = new Set([shape.id]); ctx.render(); },
+      undo() { ctx.state.items = ctx.state.items.filter(i => i.id !== shape.id); ctx.state.selection.clear(); ctx.render(); },
     });
 
     this._active    = false;
