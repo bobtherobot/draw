@@ -1,6 +1,5 @@
 import { Tool } from './base.js';
 import { rectToPathD } from '../geometry/path-utils.js';
-import { nextId } from '../core/state.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 
@@ -43,8 +42,7 @@ export class RectTool extends Tool {
     const ot    = ctx.getObjectType('path');
     const shape = ot.createShape(
       { d: rectToPathD({ x, y, width: w, height: h }) },
-      { ...ctx.state.currentStyle },
-      nextId
+      { ...ctx.state.currentStyle }
     );
     const layer = ctx.state.layers.find(l => l.id === ctx.state.activeLayerId) ?? ctx.state.layers[0];
 

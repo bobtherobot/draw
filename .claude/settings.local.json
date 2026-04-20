@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node --input-type=module)",
+      "Bash(grep -E \"\\\\.\\(ts|tsx|js|jsx|html|css|json|md\\)$\")",
+      "Bash(node -e ' *)",
+      "Bash(git checkout *)",
+      "Bash(git push *)",
+      "Bash(npm install *)",
+      "Bash(./node_modules/.bin/lessc *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(npm run *)",
+      "Bash(git commit *)",
+      "Bash(grep -v '^--$')"
+    ]
+  }
+}

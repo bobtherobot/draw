@@ -1,6 +1,13 @@
 /**
  * SVG serializer — delegates to ObjectType.toSVGString / fromSVGElement.
  * Handles legacy rect/ellipse elements on load by converting to path.
+ *
+ * NOTE — ID reconstruction on load:
+ * All IDs (layer and shape) are always regenerated via nextId() when deserializing.
+ * IDs from the file are never trusted. This guarantees uniqueness when multiple
+ * documents are opened in the same session, and avoids stale cross-references.
+ * When save/load is fully implemented, layer.name and shape.name carry the human
+ * labels; IDs are purely session-local handles.
  */
 import { getObjectType } from '../core/registry.js';
 import { rectToPathD, ellipseToPathD } from '../geometry/path-utils.js';
@@ -57,8 +64,8 @@ export function deserializeSVG(svgText) {
 
   for (const g of svgEl.querySelectorAll(':scope > g')) {
     const layer = {
-      id:       g.id || `l${lid++}`,
-      name:     g.dataset.name || g.id || `Layer ${lid}`,
+      id:       nextId('layer'),
+      name:     g.dataset.name || `Layer ${lid++}`,
       visible:  g.dataset.visible !== 'false',
       locked:   g.dataset.locked  === 'true',
       expanded: true,
@@ -93,7 +100,7 @@ function _elementToShape(el) {
   for (const typeId of ['text-block', 'text-line', 'path', 'group']) {
     const ot    = getObjectType(typeId);
     if (!ot) continue;
-    const shape = ot.fromSVGElement(el, nextId);
+    const shape = ot.fromSVGElement(el);
     if (shape) return shape;
   }
   return null;
@@ -105,7 +112,7 @@ function _legacyRect(el) {
   const w = parseFloat(el.getAttribute('width')  ?? '0');
   const h = parseFloat(el.getAttribute('height') ?? '0');
   return {
-    id:    el.dataset.id || nextId(),
+    id:    nextId('path'),
     type:  'path',
     attrs: { d: rectToPathD({ x, y, width: w, height: h }) },
     style: _parseStyle(el),
@@ -118,7 +125,7 @@ function _legacyEllipse(el) {
   const rx = parseFloat(el.getAttribute('rx') ?? '0');
   const ry = parseFloat(el.getAttribute('ry') ?? '0');
   return {
-    id:    el.dataset.id || nextId(),
+    id:    nextId('path'),
     type:  'path',
     attrs: { d: ellipseToPathD({ cx, cy, rx, ry }) },
     style: _parseStyle(el),

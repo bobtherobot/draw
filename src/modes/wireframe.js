@@ -1,4 +1,5 @@
 import { Mode } from './base.js';
+import { effectiveVisible } from '../core/state.js';
 
 const WIREFRAME_STROKE = '#4a9eff';
 const WIREFRAME_WIDTH  = 1;
@@ -28,7 +29,7 @@ export class WireframeMode extends Mode {
     const r  = 3 / state.viewport.zoom;
 
     for (const layer of state.layers) {
-      if (!layer.visible) continue;
+      if (!effectiveVisible(layer)) continue;
       for (const shape of layer.shapes) {
         const ot = getObjectType(shape.type);
         if (!ot) continue;

@@ -1,5 +1,4 @@
 import { Tool } from './base.js';
-import { nextId } from '../core/state.js';
 import { startEditing, isEditing } from '../textedit.js';
 
 export class TypeTool extends Tool {
@@ -31,8 +30,7 @@ export class TypeTool extends Tool {
         const ot    = ctx.getObjectType('text-line');
         const shape = ot.createShape(
           { x: pos.x, y: pos.y, _text: text, _fontSize: 14, _fontFamily: 'sans-serif' },
-          { fill: ctx.state.currentStyle.fill ?? '#000000', stroke: 'none', strokeWidth: 1 },
-          nextId
+          { fill: ctx.state.currentStyle.fill ?? '#000000', stroke: 'none', strokeWidth: 1 }
         );
         const layer = ctx.state.layers.find(l => l.id === ctx.state.activeLayerId) ?? ctx.state.layers[0];
         ctx.execute({

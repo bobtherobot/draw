@@ -5,6 +5,7 @@
 import { Tool } from './base.js';
 import { startEditing, isEditing } from '../textedit.js';
 import { unionBBoxes } from '../geometry/bbox.js';
+import { effectiveVisible } from '../core/state.js';
 
 const SCALE_HANDLES = ['nw','n','ne','e','se','s','sw','w'];
 const DBL_CLICK_MS  = 400;
@@ -227,6 +228,9 @@ export class SelectTool extends Tool {
 
     let sx = newW / bb.width  || 1;
     let sy = newH / bb.height || 1;
+    // Edge-only handles constrain one axis
+    if (h === 'n' || h === 's') sx = 1;
+    if (h === 'e' || h === 'w') sy = 1;
     if (constrain) { const s = Math.min(Math.abs(sx), Math.abs(sy)); sx = sx < 0 ? -s : s; sy = sy < 0 ? -s : s; }
 
     const ox = h.includes('w') ? bb.x + bb.width  : bb.x;
@@ -283,8 +287,9 @@ export class SelectTool extends Tool {
     const ctx = this._ctx;
     const sel = additive ? new Set(ctx.state.selection) : new Set();
     for (const layer of ctx.state.layers) {
-      if (!layer.visible) continue;
+      if (!effectiveVisible(layer)) continue;
       for (const shape of layer.shapes) {
+        if (shape.visible === false || shape.locked === true) continue;
         const ot = ctx.getObjectType(shape.type);
         const bb = ot?.getBBox(shape, ctx.getElement(shape.id));
         if (!bb) continue;
@@ -336,11 +341,10 @@ export class SelectTool extends Tool {
       fontSize:    shape._fontSize ?? 14,
       fill:        shape.style.fill ?? '#000000',
       zoom:        ctx.state.viewport.zoom,
-      boxWidth:    shape._isArea ? (shape._boxWidth ?? undefined)  : undefined,
-      boxHeight:   shape._isArea ? (shape._boxHeight ?? undefined) : undefined,
+      boxWidth:    shape.type === 'text-block' ? shape._boxWidth  : undefined,
+      boxHeight:   shape.type === 'text-block' ? shape._boxHeight : undefined,
       initialText: shape._text ?? '',
       onCommit: (text) => {
-        const post = _cloneShape(shape);
         ctx.execute({
           do()   { const f = _findShape(shapeId, ctx.state); if (f) { f.shape._text = text; ctx.render(); } },
           undo() { const f = _findShape(shapeId, ctx.state); if (f) { _restoreShape(f.shape, snap); ctx.render(); } },
@@ -350,6 +354,8 @@ export class SelectTool extends Tool {
   }
 
   // ── Delete ───────────────────────────────────────────────────────────────────
+
+  deleteSelected() { this._deleteSelected(); }
 
   _deleteSelected() {
     const ctx  = this._ctx;

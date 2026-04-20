@@ -10,39 +10,17 @@ import { getElement, render } from '../render/renderer.js';
 
 let _pickerSnapshot = null; // style snapshot at color-picker open
 
-export function initStylePanel(panelsEl) {
-  const panel = _build();
-  panelsEl.appendChild(panel);
+export function initStylePanel(registerPanel) {
+  registerPanel('style', 'Style', (contentEl) => {
+    const sp = _el('div', 'style-panel');
+    sp.appendChild(_colorRow('fill', 'Fill'));
+    sp.appendChild(_colorRow('stroke', 'Stroke'));
+    sp.appendChild(_weightRow());
+    contentEl.appendChild(sp);
+  });
 
   on('selection-change', () => _refresh());
   on('render',           () => _refresh());
-}
-
-// ── Build DOM ────────────────────────────────────────────────────────────────
-
-function _build() {
-  const panel = _el('div', 'panel');
-
-  const header = _el('div', 'panel__header');
-  const title  = _el('span', 'panel__title');
-  title.textContent = 'Style';
-  header.appendChild(title);
-  panel.appendChild(header);
-
-  const body = _el('div', 'panel__body');
-  panel.appendChild(body);
-
-  const sp = _el('div', 'style-panel');
-  body.appendChild(sp);
-
-  // Fill row
-  sp.appendChild(_colorRow('fill', 'Fill'));
-  // Stroke row
-  sp.appendChild(_colorRow('stroke', 'Stroke'));
-  // Stroke weight
-  sp.appendChild(_weightRow());
-
-  return panel;
 }
 
 function _colorRow(prop, label) {

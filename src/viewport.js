@@ -76,12 +76,12 @@ export function zoomAt(factor, sx, sy) {
   if (newZoom === zoom) return;
 
   // Keep the doc point under the cursor fixed
-  state.viewport.x = (sx - rect.left) / newZoom - (sx - rect.left) / zoom + x;
-  state.viewport.y = (sy - rect.top)  / newZoom - (sy - rect.top)  / zoom + y;
+  state.viewport.x = (sx - rect.left) / zoom - (sx - rect.left) / newZoom + x;
+  state.viewport.y = (sy - rect.top)  / zoom - (sy - rect.top)  / newZoom + y;
   state.viewport.zoom = newZoom;
 
   updateViewBox();
-  emit('render');
+  emit('viewport-change');
 }
 
 /**
@@ -94,7 +94,7 @@ export function panBy(dx, dy) {
   state.viewport.x -= dx / zoom;
   state.viewport.y -= dy / zoom;
   updateViewBox();
-  emit('render');
+  emit('viewport-change');
 }
 
 /**
@@ -110,5 +110,5 @@ export function fitToArtboard() {
   state.viewport.x    = -(rect.width  / zoom - aw) / 2;
   state.viewport.y    = -(rect.height / zoom - ah) / 2;
   updateViewBox();
-  emit('render');
+  emit('viewport-change');
 }

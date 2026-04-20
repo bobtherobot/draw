@@ -4,21 +4,43 @@
  */
 
 let _idCounter = 0;
-export const nextId = () => `s${++_idCounter}`;
+
+/**
+ * Generate a unique ID. prefix should be a short lowercase string (no spaces).
+ * Format: `${prefix}${integer}` — e.g. "layer1", "path3", "text-line7".
+ * IDs are session-local; they must be reconstructed on file load (never trusted
+ * from serialized data) to avoid collisions between documents.
+ */
+export const nextId = (prefix = 'obj') => `${prefix}${++_idCounter}`;
+
+/**
+ * Sanitize a human-readable label: strip control characters (including newlines),
+ * trim whitespace, cap at 100 characters. Allows all printable unicode including
+ * double-byte characters and emoji.
+ */
+export function sanitizeName(str) {
+  return String(str ?? '')
+    .replace(/[\x00-\x1f\x7f]/g, '')
+    .trim()
+    .slice(0, 100);
+}
+
+const _defaultLayerId = nextId('layer'); // 'layer1'
 
 export const state = {
   activeTool:  'select',
   activeMode:  'normal',
 
   layers: [{
-    id:       'l1',
+    id:       _defaultLayerId,
     name:     'Layer 1',
     visible:  true,
     locked:   false,
     expanded: true,
+    parentId: null,
     shapes:   [],
   }],
-  activeLayerId: 'l1',
+  activeLayerId: _defaultLayerId,
 
   /** @type {Set<string>} shape ids */
   selection: new Set(),
@@ -59,6 +81,31 @@ export const state = {
 /** Return the active layer object. */
 export function getActiveLayer() {
   return state.layers.find(l => l.id === state.activeLayerId) ?? state.layers[0];
+}
+
+/**
+ * Effective visibility — false if the layer itself OR any ancestor is hidden.
+ * Never mutates child state; parent toggling does not change child.visible.
+ */
+export function effectiveVisible(layer) {
+  let cur = layer;
+  while (cur) {
+    if (!cur.visible) return false;
+    cur = cur.parentId ? state.layers.find(l => l.id === cur.parentId) : null;
+  }
+  return true;
+}
+
+/**
+ * Effective lock — true if the layer itself OR any ancestor is locked.
+ */
+export function effectiveLocked(layer) {
+  let cur = layer;
+  while (cur) {
+    if (cur.locked) return true;
+    cur = cur.parentId ? state.layers.find(l => l.id === cur.parentId) : null;
+  }
+  return false;
 }
 
 /**

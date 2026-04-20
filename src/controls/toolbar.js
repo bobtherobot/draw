@@ -160,5 +160,9 @@ function _onDblClick(e) {
 function _onWheel(e) {
   e.preventDefault();
   const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
-  zoomAt(factor, e.clientX, e.clientY);
+  if (e.metaKey) {
+    zoomAt(factor, e.clientX, e.clientY);
+  } else {
+    zoomAt(factor);
+  }
 }

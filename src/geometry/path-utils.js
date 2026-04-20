@@ -1,6 +1,5 @@
 /**
  * SVG path string parsing and building utilities.
- * Ported from v1 src/path-utils.js.
  */
 
 /**

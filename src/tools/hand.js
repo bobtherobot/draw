@@ -1,6 +1,8 @@
 import { Tool } from './base.js';
 import { updateViewBox } from '../viewport.js';
 
+const _canvas = () => document.getElementById('canvas');
+
 export class HandTool extends Tool {
   get id()       { return 'hand'; }
   get label()    { return 'Hand'; }
@@ -11,14 +13,19 @@ export class HandTool extends Tool {
     this._dragging = false;
     this._anchor   = null;
     this._vpSnap   = null;
+    _canvas()?.style.setProperty('cursor', 'grab');
   }
 
-  deactivate() { this._dragging = false; }
+  deactivate() {
+    this._dragging = false;
+    _canvas()?.style.removeProperty('cursor');
+  }
 
   onMouseDown(e) {
     this._dragging = true;
     this._anchor   = { x: e.clientX, y: e.clientY };
     this._vpSnap   = { ...this._ctx.state.viewport };
+    _canvas()?.style.setProperty('cursor', 'grabbing');
   }
 
   onMouseMove(e) {
@@ -29,5 +36,8 @@ export class HandTool extends Tool {
     updateViewBox();
   }
 
-  onMouseUp() { this._dragging = false; }
+  onMouseUp() {
+    this._dragging = false;
+    _canvas()?.style.setProperty('cursor', 'grab');
+  }
 }

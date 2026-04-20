@@ -11,6 +11,7 @@ import { render }               from '../render/renderer.js';
 import { undo, redo, canUndo, canRedo } from '../core/history.js';
 import { zoomAt, fitToArtboard } from '../viewport.js';
 import { newDocument, openSVG, saveSVG } from '../io/io.js';
+import { isEditing } from '../textedit.js';
 
 // Register built-in modifier overrides (Space → hand, Meta → select, Meta+Alt → zoom)
 registerModifierOverride(['space'], 'hand',   10);
@@ -26,7 +27,7 @@ function _onKeyDown(e) {
   if (e.key === 'Meta'  || e.key === 'Control') setModifier('meta',  true, getTool, render);
   if (e.key === 'Alt')                           setModifier('alt',   true, getTool, render);
   if (e.key === 'Shift')                         setModifier('shift', true, getTool, render);
-  if (e.key === ' ')                             setModifier('space', true, getTool, render);
+  if (e.key === ' ' && !isEditing())             setModifier('space', true, getTool, render);
 
   // Don't process shortcuts when a text input has focus
   const tag = document.activeElement?.tagName?.toLowerCase();

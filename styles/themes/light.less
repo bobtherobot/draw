@@ -25,9 +25,19 @@ body[data-theme="light"] {
   --theme-warning:      #cc8800;
   --theme-success:      #007722;
 
+  --theme-hidden:          #cc7700;
+  --theme-locked:          #1a1a1a;  /* locked = full contrast fg (matches --theme-fg) */
+  --theme-lock-dim:        #808080;  /* unlocked = neutral 50% grey */
+  --theme-lp-footer-bg:    #e0e0e0;  /* layers panel footer background */
+
   --theme-artboard-bg:  #ffffff;
   --theme-pasteboard:   #c8c8c8;
   --theme-shadow:       rgba(0, 0, 0, 0.2);
 
   --theme-icon-path:    'assets/themes/light';
+}
+
+body[data-theme="light"] .dialog input,
+body[data-theme="light"] .dialog select {
+  color-scheme: light;
 }

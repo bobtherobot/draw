@@ -18,12 +18,17 @@ export function buildApp() {
   app.innerHTML = '';
   app.dataset.theme = state.options.theme;
 
-  // ── Layout: toolbar | canvas-wrap | panels ─────────────────────────────────
-  const toolbar     = _el('div', 'toolbar');
-  const canvasWrap  = _el('div', 'canvas-wrap');
-  const panels      = _el('div', 'panels');
+  // ── Menubar ────────────────────────────────────────────────────────────────
+  const menubar = _el('div', 'menubar');
+  menubar.id = 'menubar';
 
-  app.append(toolbar, canvasWrap, panels);
+  // ── Layout: toolbar | canvas-wrap | panels ─────────────────────────────────
+  const toolbar    = _el('div', 'toolbar');
+  const canvasWrap = _el('div', 'canvas-wrap');
+  const workspace  = _el('div', 'workspace');
+
+  workspace.append(toolbar, canvasWrap);
+  app.append(menubar, workspace);
 
   // ── SVG canvas ─────────────────────────────────────────────────────────────
   const svg = document.createElementNS(SVG_NS, 'svg');
@@ -44,12 +49,12 @@ export function buildApp() {
 
   // ── Status bar ─────────────────────────────────────────────────────────────
   const statusbar = _el('div', 'statusbar');
-  app.appendChild(statusbar);
+  workspace.appendChild(statusbar);
 
   // ── Command bar (floating) — built by controls/commandbar.js ───────────────
   const commandbar = _el('div', 'commandbar');
   commandbar.id = 'commandbar';
-  app.appendChild(commandbar);
+  workspace.appendChild(commandbar);
 
   // ── Window resize → invalidate cached rect ─────────────────────────────────
   new ResizeObserver(() => {
@@ -57,14 +62,7 @@ export function buildApp() {
     updateViewBox();
   }).observe(canvasWrap);
 
-  return {
-    toolbar,
-    canvasWrap,
-    panels,
-    svg,
-    statusbar,
-    commandbar,
-  };
+  return { menubar, toolbar, canvasWrap, svg, statusbar, commandbar };
 }
 
 /** Apply theme: set data-theme, update icon loader, push cursor CSS vars. */
@@ -72,7 +70,10 @@ export function applyTheme(themeName) {
   document.body.dataset.theme = themeName;
   state.options.theme = themeName;
 
-  const iconPath = themeName === 'dark' ? 'assets/themes/default' : `assets/themes/${themeName}`;
+  // Use a theme-specific icon path only when that theme ships its own icons.
+  // CSS-only themes (light, etc.) have no icon overrides and must fall back to default.
+  const THEMES_WITH_ICONS = new Set([]); // add theme names here when they ship custom icon sets
+  const iconPath = THEMES_WITH_ICONS.has(themeName) ? `assets/themes/${themeName}` : 'assets/themes/default';
   setIconTheme(iconPath);
 
   // Push cursor custom properties so canvas.less cursor rules resolve correctly

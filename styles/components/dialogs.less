@@ -87,10 +87,38 @@
     }
   }
 
-  // Text input inside dialog
+  // Inputs and selects inside dialog — color-scheme tells the browser to render
+  // native widget chrome (select dropdown list, number spinners) in the right theme.
   input[type="text"],
-  input[type="number"] {
+  input[type="number"],
+  select {
     .input-field();
     flex: 1 1 auto;
+    color-scheme: dark;
+  }
+
+  &__sep {
+    border: none;
+    border-top: 1px solid var(--theme-bg-active);
+    margin: @sp-1 0;
+  }
+
+  &__unit {
+    font-size: @font-size-sm;
+    color: var(--theme-fg-dim);
+    flex-shrink: 0;
+  }
+
+  // Row that holds action buttons (e.g. export/import) — no label, buttons flush left
+  &__field--actions {
+    gap: @sp-2;
+    flex-wrap: wrap;
+
+    label { display: none; }
+
+    .dialog__btn {
+      flex: 0 0 auto;
+      font-size: @font-size-sm;
+    }
   }
 }

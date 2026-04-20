@@ -1,5 +1,4 @@
 import { Tool } from './base.js';
-import { nextId } from '../core/state.js';
 import { startEditing, isEditing } from '../textedit.js';
 import { rectToPathD } from '../geometry/path-utils.js';
 
@@ -52,8 +51,7 @@ export class TypeAreaTool extends Tool {
         const ot    = ctx.getObjectType('text-block');
         const shape = ot.createShape(
           { x, y, _text: text, _fontSize: 14, _fontFamily: 'sans-serif', _boxWidth: w, _boxHeight: h },
-          { fill: ctx.state.currentStyle.fill ?? '#000000', stroke: 'none', strokeWidth: 1 },
-          nextId
+          { fill: ctx.state.currentStyle.fill ?? '#000000', stroke: 'none', strokeWidth: 1 }
         );
         const layer = ctx.state.layers.find(l => l.id === ctx.state.activeLayerId) ?? ctx.state.layers[0];
         ctx.execute({

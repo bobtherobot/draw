@@ -6,6 +6,8 @@
  *
  * See .claude/docs/OBJECT-TYPE.md for full contract documentation.
  */
+import { nextId } from '../core/state.js';
+
 export class ObjectType {
   /** Unique type id matching shape.type. @type {string} */
   get id()    { throw new Error(`${this.constructor.name}: id not implemented`); }
@@ -18,13 +20,12 @@ export class ObjectType {
 
   /**
    * Create a fresh shape POJO.
-   * @param {object}   initAttrs
-   * @param {object}   initStyle
-   * @param {Function} nextId
+   * @param {object} initAttrs
+   * @param {object} initStyle
    * @returns {object}
    */
-  createShape(initAttrs, initStyle, nextId) {
-    return { id: nextId(), type: this.id, attrs: { ...initAttrs }, style: { ...initStyle } };
+  createShape(initAttrs, initStyle) {
+    return { id: nextId(this.id), type: this.id, attrs: { ...initAttrs }, style: { ...initStyle } };
   }
 
   /**
@@ -94,11 +95,11 @@ export class ObjectType {
   /**
    * Deserialize a DOM element from a parsed SVG file into a shape POJO.
    * Return null if this element is not handled by this type.
-   * @param {Element}  el
-   * @param {Function} nextId
+   * IDs are always freshly generated — never read from the element.
+   * @param {Element} el
    * @returns {object|null}
    */
-  fromSVGElement(el, nextId) { return null; }
+  fromSVGElement(el) { return null; }
 
   // ── Wireframe ───────────────────────────────────────────────────────────────
 

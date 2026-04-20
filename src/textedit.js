@@ -5,7 +5,7 @@
  * Point text: auto-expands width via a mirror <span>.
  * Area text:  fixed size, scrollTop pinned to 0 so overflow exits at the bottom.
  */
-import { docToScreen } from './viewport.js';
+import { docToScreen, getCanvasRect } from './viewport.js';
 
 const TA_ID     = 'text-edit-ta';
 const MIRROR_ID = 'text-edit-mirror';
@@ -32,7 +32,7 @@ function _ensureEls() {
     'pointer-events:none', 'top:-9999px', 'left:-9999px',
   ].join(';');
 
-  const wrap = document.getElementById('canvas-wrap') ?? document.body;
+  const wrap = document.querySelector('.canvas-wrap') ?? document.body;
   wrap.appendChild(_ta);
   wrap.appendChild(_mirror);
 }
@@ -60,9 +60,10 @@ export function startEditing(opts) {
   const isArea = boxWidth != null && boxHeight != null;
 
   // Position: convert doc coords to screen coords
-  const screen = docToScreen(docX, docY);
-  const screenX = screen.x;
-  const screenY = screen.y;
+  const screen    = docToScreen(docX, docY);
+  const canvasRect = getCanvasRect();
+  const screenX   = screen.x - canvasRect.left;
+  const screenY   = screen.y - canvasRect.top;
 
   const px = fontSize * zoom;
 

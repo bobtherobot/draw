@@ -1,4 +1,5 @@
 import { ObjectType } from './base.js';
+import { nextId } from '../core/state.js';
 import { unionBBoxes } from '../geometry/bbox.js';
 
 const NS = 'http://www.w3.org/2000/svg';
@@ -8,9 +9,9 @@ export class GroupObjectType extends ObjectType {
   get label() { return 'Group'; }
   get icon()  { return 'object-group'; }
 
-  createShape(initAttrs, initStyle, nextId) {
+  createShape(initAttrs, initStyle) {
     return {
-      id:       nextId(),
+      id:       nextId(this.id),
       type:     'group',
       attrs:    { ...initAttrs },
       style:    { ...initStyle },
@@ -72,10 +73,10 @@ export class GroupObjectType extends ObjectType {
     return `<g${meta}></g>`;
   }
 
-  fromSVGElement(el, nextId) {
+  fromSVGElement(el) {
     if (el.tagName !== 'g') return null;
     return {
-      id:       nextId(),
+      id:       nextId(this.id),
       type:     'group',
       attrs:    {},
       style:    {},

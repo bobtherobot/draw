@@ -1,11 +1,20 @@
-// Top-level app layout — toolbar | canvas | panels
+// Top-level app layout — menubar on top, workspace row below
 .app, #app {
   display: flex;
-  flex-direction: row;
+  flex-direction: column;
   width: 100%;
   height: 100%;
   overflow: hidden;
   background: var(--theme-pasteboard);
+  position: relative;
+}
+
+.workspace {
+  display: flex;
+  flex-direction: row;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
   position: relative;
 }
 
@@ -24,11 +33,3 @@
   }
 }
 
-.panels {
-  .flex-col();
-  flex: 0 0 220px;
-  width: 220px;
-  background: var(--theme-bg);
-  border-left: 1px solid var(--theme-border);
-  overflow: hidden;
-}

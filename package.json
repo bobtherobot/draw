@@ -5,11 +5,12 @@
   "private": true,
   "scripts": {
     "css": "lessc styles/main.less dist/main.css",
-    "css:watch": "lessc --watch styles/main.less dist/main.css",
+    "css:watch": "chokidar 'styles/**/*.less' -c 'lessc styles/main.less dist/main.css'",
     "serve": "python3 -m http.server 8000",
     "dev": "npm run css && npm run serve & npm run css:watch"
   },
   "devDependencies": {
-    "less": "^4.2.0"
+    "less": "^4.2.0",
+    "chokidar-cli": "^3.0.0"
   }
 }

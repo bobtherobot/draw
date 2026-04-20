@@ -1,94 +1,231 @@
-// Layers panel — layer groups and shape items
+// Layers panel — hierarchical layer/shape tree
+//
+// ── Design tokens (override in styles/core/variables.less or a theme file) ────
+//   --theme-hidden        visibility-off indicator color
+//   --theme-locked        lock-active indicator color  (full contrast by default)
+//   --theme-lock-dim      lock-inactive indicator color (50% grey by default)
+//   --theme-lp-footer-bg  footer background (defaults to --theme-bg-raised)
+// ─────────────────────────────────────────────────────────────────────────────
+
 .layers-panel {
   .flex-col();
   flex: 1 1 auto;
   min-height: 0;
+  overflow-y: auto;
+  .scrollable();
+}
 
-  // Layer group header row
-  &__layer {
-    .flex-row();
-    padding: 3px @sp-2;
-    gap: @sp-1;
-    min-height: 28px;
-    cursor: default;
-    user-select: none;
+// ── Layer node wrapper ────────────────────────────────────────────────────────
 
-    &:hover { background: var(--theme-bg-hover); }
-    &.active { background: var(--theme-bg-active); }
+.lp-node {
+  .flex-col();
+  flex-shrink: 0;
+}
+
+// ── Layer header row ──────────────────────────────────────────────────────────
+
+.lp-layer {
+  .flex-row();
+  align-items: center;
+  gap: @sp-1;
+  height: 28px;
+  padding-right: @sp-1;
+  flex-shrink: 0;
+  cursor: default;
+  user-select: none;
+  border-bottom: 1px solid transparent;
+
+  &:hover { background: var(--theme-bg-hover); }
+
+  &--active {
+    background: var(--theme-bg-active);
+    &:hover { background: var(--theme-bg-active); }
   }
 
-  &__expand-btn {
-    .icon-btn();
-    width: 16px;
-    height: 16px;
-    flex-shrink: 0;
-
-    svg { width: 10px; height: 10px; }
+  &--panel-selected {
+    background: var(--theme-selection);
+    &:hover { background: var(--theme-selection); }
   }
 
-  &__layer-name {
-    flex: 1 1 auto;
-    font-size: @font-size-sm;
+  &--drop {
+    background: var(--theme-selection) !important;
+    outline: 1px solid var(--theme-accent);
+    outline-offset: -1px;
+  }
+
+  // Effectively hidden due to an ancestor being hidden (own state unchanged)
+  &--eff-hidden { opacity: 0.4; }
+
+  // Effectively locked due to an ancestor being locked (own state unchanged)
+  &--eff-locked .lp-row__name::after {
+    content: '↑';
+    font-size: 9px;
+    margin-left: 4px;
+    color: var(--theme-fg-disabled);
+    vertical-align: middle;
+  }
+
+  // Layer name
+  .lp-row__name {
     color: var(--theme-fg);
-    .text-ellipsis();
+    font-weight: 500;
   }
 
-  &__visibility-btn,
-  &__lock-btn {
-    .icon-btn();
-    width: 20px;
-    height: 20px;
-    flex-shrink: 0;
-    opacity: 0;
-    transition: opacity @transition-fast;
+}
 
-    svg { width: 12px; height: 12px; }
-  }
+.lp-layer__actions {
+  .flex-row();
+  align-items: center;
+  gap: 1px;
+  margin-left: auto;
+  flex-shrink: 0;
+  transition: opacity @transition-fast;
+}
 
-  &__layer:hover &__visibility-btn,
-  &__layer:hover &__lock-btn,
-  &__layer.active &__visibility-btn,
-  &__layer.active &__lock-btn {
-    opacity: 1;
-  }
+// ── Expand chevron ────────────────────────────────────────────────────────────
 
-  // Shape items within an expanded layer
-  &__shapes {
-    .flex-col();
-  }
+.lp-expand {
+  .icon-btn();
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--theme-fg-dim);
 
-  &__shape {
-    .flex-row();
-    padding: 2px @sp-2 2px @sp-6;
-    gap: @sp-1;
-    min-height: 24px;
-    cursor: default;
-    user-select: none;
+  svg { width: 9px; height: 9px; transition: transform 0.15s ease; }
+  &--open svg { transform: rotate(90deg); }
+}
 
-    &:hover { background: var(--theme-bg-hover); }
-    &.selected { background: var(--theme-selection); }
-  }
+// ── Action buttons (vis, lock, add-sub) ───────────────────────────────────────
 
-  &__shape-icon {
-    flex-shrink: 0;
-    width: 14px;
-    height: 14px;
-    color: var(--theme-fg-dim);
-    svg { width: 14px; height: 14px; fill: currentColor; }
-  }
+.lp-btn {
+  .icon-btn();
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  color: var(--theme-fg-disabled);
 
-  &__shape-name {
-    flex: 1 1 auto;
-    font-size: @font-size-sm;
-    color: var(--theme-fg);
-    .text-ellipsis();
-  }
+  svg { width: 12px; height: 12px; }
 
-  // Empty state
-  &__empty {
-    padding: @sp-4 @sp-2;
-    text-align: center;
-    font-size: @font-size-sm;
-    color: var(--theme-fg-dim);
-  }
+  &:hover { color: var(--theme-fg); }
+
+  // Visibility button — item is hidden
+  &--is-hidden { color: var(--theme-hidden); &:hover { color: var(--theme-hidden); filter: brightness(1.2); } }
+
+  // Lock button base — subdued when unlocked
+  &--lock { color: var(--theme-lock-dim); &:hover { color: var(--theme-fg); } }
+
+  // Lock button — item is locked: full contrast
+  &--is-locked { color: var(--theme-locked); &:hover { color: var(--theme-locked); } }
+}
+
+// ── Layer body (contains shapes + sub-layers) ─────────────────────────────────
+
+.lp-body {
+  .flex-col();
+  flex-shrink: 0;
+}
+
+// ── Shared name / label ───────────────────────────────────────────────────────
+
+.lp-row__name {
+  flex: 1 1 auto;
+  font-size: @font-size-sm;
+  color: var(--theme-fg-dim);
+  .text-ellipsis();
+  min-width: 0;
+}
+
+// Inline name edit input
+.lp-name-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: @font-size-sm;
+  color: var(--theme-fg);
+  background: var(--theme-bg-active);
+  border: 1px solid var(--theme-accent);
+  border-radius: @radius-sm;
+  padding: 1px @sp-1;
+  outline: none;
+  height: 20px;
+}
+
+// ── Shape row ─────────────────────────────────────────────────────────────────
+
+.lp-shape {
+  .flex-row();
+  align-items: center;
+  gap: @sp-1;
+  height: 24px;
+  padding-right: @sp-2;
+  flex-shrink: 0;
+  cursor: default;
+  user-select: none;
+
+  &:hover    { background: var(--theme-bg-hover); }
+  &--selected { background: var(--theme-selection); }
+  &--dragging { opacity: 0.4; }
+  &--hidden   { opacity: 0.45; }
+}
+
+.lp-shape__icon {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  color: var(--theme-fg-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  svg { width: 14px; height: 14px; }
+}
+
+// ── Empty layer ───────────────────────────────────────────────────────────────
+
+.lp-empty {
+  padding: @sp-2 @sp-2 @sp-2 @sp-6;
+  font-size: @font-size-sm;
+  color: var(--theme-fg-disabled);
+  font-style: italic;
+}
+
+// ── Drop indicator ────────────────────────────────────────────────────────────
+
+.lp-drop-line {
+  height: 2px;
+  background: var(--theme-accent);
+  border-radius: 1px;
+  pointer-events: none;
+  flex-shrink: 0;
+  margin: 0 @sp-1;
+  box-shadow: 0 0 4px var(--theme-accent);
+}
+
+// ── Panel footer ──────────────────────────────────────────────────────────────
+
+.lp-footer {
+  .flex-row();
+  align-items: center;
+  gap: 2px;
+  padding: @sp-1;
+  flex-shrink: 0;
+  border-top: 1px solid var(--theme-border);
+  background: var(--theme-lp-footer-bg, var(--theme-bg-raised));
+}
+
+// ── Footer action buttons ─────────────────────────────────────────────────────
+
+.lp-footer-btn {
+  .icon-btn();
+  width: 22px;
+  height: 22px;
+  color: var(--theme-fg-dim);
+
+  svg { width: 13px; height: 13px; }
+
+  &:hover:not(:disabled) { color: var(--theme-fg); }
+  &:disabled { color: var(--theme-fg-disabled); cursor: default; }
+
+  // Lock state mirrors .lp-btn--lock / --is-locked
+  &--lock   { color: var(--theme-lock-dim); }
+  &--locked { color: var(--theme-locked); &:hover:not(:disabled) { color: var(--theme-locked); } }
 }

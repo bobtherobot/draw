@@ -1,4 +1,5 @@
 import { ObjectType } from './base.js';
+import { nextId } from '../core/state.js';
 import { parsePathD, buildPathD } from '../geometry/path-utils.js';
 import { translatePathD, scalePathD, rotatePathD } from '../geometry/transform.js';
 
@@ -90,11 +91,11 @@ export class PathObjectType extends ObjectType {
     return `<path d="${shape.attrs.d ?? ''}" fill="${s.fill ?? 'none'}" stroke="${s.stroke ?? 'none'}" stroke-width="${s.strokeWidth ?? 1}"${meta}/>`;
   }
 
-  fromSVGElement(el, nextId) {
+  fromSVGElement(el) {
     if (el.tagName !== 'path') return null;
     const d = el.getAttribute('d') ?? '';
     return {
-      id:    nextId(),
+      id:    nextId(this.id),
       type:  'path',
       attrs: { d },
       style: {

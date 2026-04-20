@@ -1,4 +1,5 @@
 import { ObjectType } from './base.js';
+import { nextId } from '../core/state.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 
@@ -45,9 +46,9 @@ export class TextBlockObjectType extends ObjectType {
   get label() { return 'Text Block'; }
   get icon()  { return 'object-text-block'; }
 
-  createShape(initAttrs, initStyle, nextId) {
+  createShape(initAttrs, initStyle) {
     return {
-      id:           nextId(),
+      id:           nextId(this.id),
       type:         'text-block',
       attrs:        { x: 0, y: 0, ...initAttrs },
       style:        { fill: '#000000', stroke: 'none', strokeWidth: 1, ...initStyle },
@@ -152,13 +153,13 @@ export class TextBlockObjectType extends ObjectType {
     return `<text x="${shape.attrs.x}" y="${shape.attrs.y}" fill="${s.fill ?? '#000'}" font-size="${fs}" font-family="${ff}"${meta}>${tspans}</text>`;
   }
 
-  fromSVGElement(el, nextId) {
+  fromSVGElement(el) {
     if (el.tagName !== 'text') return null;
     if (el.getAttribute('data-type') !== 'text-block') return null;
     const tspans = Array.from(el.querySelectorAll('tspan'));
     const text   = tspans.map(t => t.textContent).join(' ');
     return {
-      id:          nextId(),
+      id:          nextId(this.id),
       type:        'text-block',
       attrs:       { x: Number(el.getAttribute('x') ?? 0), y: Number(el.getAttribute('y') ?? 0) },
       style:       { fill: el.getAttribute('fill') ?? '#000000', stroke: 'none', strokeWidth: 1 },

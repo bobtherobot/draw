@@ -10,7 +10,7 @@
  *   6. activeMode.afterRender()
  *   7. panel refreshes (via 'render' event)
  */
-import { state }             from '../core/state.js';
+import { state, effectiveVisible } from '../core/state.js';
 import { getObjectType, getMode } from '../core/registry.js';
 import { emit }              from '../core/events.js';
 import { updateViewBox }     from '../viewport.js';
@@ -108,7 +108,7 @@ function _renderLayers(activeMode) {
       _docRoot.insertBefore(layerEl, _docRoot.querySelector('#text-guides'));
       layerElMap.set(layer.id, layerEl);
     }
-    layerEl.style.display = layer.visible ? '' : 'none';
+    layerEl.style.display = effectiveVisible(layer) ? '' : 'none';
 
     // Track shape ids in this layer to detect removals
     const currentIds = new Set(layer.shapes.map(s => s.id));
@@ -142,6 +142,7 @@ function _renderLayers(activeMode) {
         : shape;
 
       ot.syncElement(el, renderShape, viewState);
+      el.style.display = shape.visible === false ? 'none' : '';
 
       // Ensure correct DOM order (shapes can be reordered)
       const expectedNext = j + 1 < layer.shapes.length

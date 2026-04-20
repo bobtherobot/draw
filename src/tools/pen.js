@@ -10,7 +10,6 @@
  *   Escape             → cancel
  */
 import { Tool } from './base.js';
-import { nextId } from '../core/state.js';
 import { buildPenPathD } from '../geometry/pen-path.js';
 
 const CLOSE_RADIUS = 8; // screen px
@@ -198,7 +197,7 @@ export class PenTool extends Tool {
     const d     = buildPenPathD(this._anchors, closePath);
     const ctx   = this._ctx;
     const ot    = ctx.getObjectType('path');
-    const shape = ot.createShape({ d }, { ...ctx.state.currentStyle }, nextId);
+    const shape = ot.createShape({ d }, { ...ctx.state.currentStyle });
     const layer = ctx.state.layers.find(l => l.id === ctx.state.activeLayerId) ?? ctx.state.layers[0];
 
     ctx.execute({
