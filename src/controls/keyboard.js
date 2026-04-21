@@ -5,6 +5,7 @@
  */
 import { state }                from '../core/state.js';
 import { emit }                 from '../core/events.js';
+import { getZone }              from '../core/focus.js';
 import { getTool, getAllTools, getAllKeybindings } from '../core/registry.js';
 import { setModifier, registerModifierOverride } from '../core/modifiers.js';
 import { render }               from '../render/renderer.js';
@@ -79,6 +80,12 @@ function _onKeyDown(e) {
       kb.action(e);
       return;
     }
+  }
+
+  // Zone-aware routing for layers panel
+  if (getZone() === 'layers') {
+    if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); emit('layers-delete'); return; }
+    if (e.key === 'Escape')                          { e.preventDefault(); emit('layers-escape'); return; }
   }
 
   // Delegate to active tool

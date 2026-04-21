@@ -7,6 +7,7 @@
  */
 import { state, effectiveVisible, effectiveLocked, nextId, sanitizeName, findItem, sanitizeItems } from '../core/state.js';
 import { on, emit }    from '../core/events.js';
+import { registerZone, getZone } from '../core/focus.js';
 import { execute }     from '../core/history.js';
 import { getIconSync } from '../core/icons.js';
 import { render }      from '../render/renderer.js';
@@ -29,6 +30,8 @@ export function initLayersPanel(registerPanel) {
     contentEl.style.display       = 'flex';
     contentEl.style.flexDirection = 'column';
 
+    registerZone(contentEl, 'layers');
+
     _panelBody   = _el('div', 'layers-panel');
     _panelFooter = _el('div', 'lp-footer');
     contentEl.appendChild(_panelBody);
@@ -37,7 +40,10 @@ export function initLayersPanel(registerPanel) {
   });
 
   on('render',           _refresh);
-  on('selection-change', () => { _onCanvasSelChange(); _refresh(); });
+  on('selection-change', () => { if (getZone() !== 'layers') _onCanvasSelChange(); _refresh(); });
+  on('zone-change',      zone => { if (zone !== 'layers') { _onCanvasSelChange(); _refresh(); } });
+  on('layers-delete',    _deleteSelected);
+  on('layers-escape',    () => { _onCanvasSelChange(); _refresh(); });
 
   document.addEventListener('mousemove', _onDragMove);
   document.addEventListener('mouseup',   _onDragUp);
@@ -256,7 +262,6 @@ function _itemEl(node, depth) {
       _anchor = key;
       if (isGroup) state.activeItemId = item.id;
     }
-    _version = null;
     render();
   });
 

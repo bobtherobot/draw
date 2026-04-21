@@ -25,6 +25,7 @@ import { loadSettings }                    from './core/settings.js';
 // Renderer
 import { initRenderer, render } from './render/renderer.js';
 import { on } from './core/events.js';
+import { registerZone } from './core/focus.js';
 
 // ── Boot ─────────────────────────────────────────────────────────────────────
 
@@ -47,6 +48,13 @@ initLayersPanel(registerPanel);
 initMenubar(dom.menubar);
 initCommandbar(dom.commandbar);
 initIO();
+
+// Zone registration — elements available after buildApp()
+registerZone(dom.svg,       'canvas');
+registerZone(dom.toolbar,   'toolbar');
+registerZone(dom.menubar,   'menubar');
+registerZone(dom.commandbar,'commandbar');
+// Panels register their own zones inside initLayersPanel / initStylePanel
 
 // Wire viewport changes (zoom/pan) → full render pipeline
 on('viewport-change', render);

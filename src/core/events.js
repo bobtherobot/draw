@@ -13,6 +13,9 @@
  *   'history-change'   — undo/redo stack mutated
  *   'modifier-change'  — modifiers snapshot
  *   'theme-change'     — { theme } string
+ *   'zone-change'      — zone name string ('canvas'|'layers'|'style'|'toolbar'|'menubar'|'commandbar')
+ *   'layers-delete'    — keyboard Delete/Backspace fired while layers zone is active
+ *   'layers-escape'    — keyboard Escape fired while layers zone is active
  */
 
 /** @type {Map<string, Set<Function>>} */
