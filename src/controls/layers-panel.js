@@ -37,7 +37,7 @@ export function initLayersPanel(registerPanel) {
   });
 
   on('render',           _refresh);
-  on('selection-change', () => { _syncPanelSelFromCanvas(); _refresh(); });
+  on('selection-change', () => { _onCanvasSelChange(); _refresh(); });
 
   document.addEventListener('mousemove', _onDragMove);
   document.addEventListener('mouseup',   _onDragUp);
@@ -139,10 +139,11 @@ function _itemEl(node, depth) {
   row.dataset.itemId  = item.id;
   row.style.paddingLeft = (depth * INDENT_PX + (isGroup ? 4 : 20)) + 'px';
 
-  if (isGroup && item.id === state.activeItemId)  row.classList.add('lp-layer--active');
-  if (isArtboard)                                 row.classList.add('lp-layer--artboard');
-  if (isGroup && _panelSel.has('item:' + item.id)) row.classList.add('lp-layer--panel-selected');
-if (isGroup && effectiveLocked(item) && !item.locked) row.classList.add('lp-layer--eff-locked');
+  if (isGroup && item.id === state.activeItemId)    row.classList.add('lp-layer--active');
+  if (isArtboard)                                   row.classList.add('lp-layer--artboard');
+  if (isGroup && _panelSel.has('item:' + item.id))  row.classList.add('lp-layer--panel-selected');
+  if (isGroup && effectiveLocked(item) && !item.locked) row.classList.add('lp-layer--eff-locked');
+  if (!isGroup && _panelSel.has('item:' + item.id)) row.classList.add('lp-shape--selected');
 
   // Expand chevron
   if (isGroup || hasChildren) {
@@ -212,9 +213,24 @@ if (isGroup && effectiveLocked(item) && !item.locked) row.classList.add('lp-laye
     render();
   });
 
-  const dot = _el('span', 'lp-dot');
+  const dot = _el('button', 'lp-dot');
+  dot.title = 'Select on canvas';
   dot.appendChild(getIconSync('ui', 'dot'));
   if (_hasSelectedDescendant(item)) dot.classList.add('lp-dot--active');
+  dot.addEventListener('click', e => {
+    e.stopPropagation();
+    const ids = isGroup ? _displayDescendants(item) : [item.id];
+    const sel = new Set(state.selection);
+    const allSelected = ids.length > 0 && ids.every(id => sel.has(id));
+    if (allSelected) {
+      for (const id of ids) sel.delete(id);
+    } else {
+      for (const id of ids) sel.add(id);
+    }
+    state.selection = sel;
+    emit('selection-change');
+    render();
+  });
 
   actions.append(visBtn, lockBtn, dot);
   row.appendChild(actions);
@@ -231,26 +247,16 @@ if (isGroup && effectiveLocked(item) && !item.locked) row.classList.add('lp-laye
     const key = 'item:' + item.id;
     if (e.shiftKey) {
       _rangeSelect(key);
-      if (!isGroup) state.selection = _panelDisplaySelection();
     } else if (e.metaKey || e.ctrlKey) {
       _toggleSel(item.id);
       _anchor = key;
-      if (!isGroup) {
-        const sel = new Set(state.selection);
-        sel.has(item.id) ? sel.delete(item.id) : sel.add(item.id);
-        state.selection = sel;
-      }
     } else {
       _panelSel.clear();
       _panelSel.add(key);
       _anchor = key;
-      if (isGroup) {
-        state.activeItemId = item.id;
-      } else {
-        state.selection = new Set([item.id]);
-      }
+      if (isGroup) state.activeItemId = item.id;
     }
-    emit('selection-change');
+    _version = null;
     render();
   });
 
@@ -350,16 +356,20 @@ function _resolveSelected() {
   return result;
 }
 
-function _syncPanelSelFromCanvas() {
-  for (const k of [..._panelSel]) {
-    if (k.startsWith('item:')) {
-      const item = findItem(k.slice(5));
-      if (item && item.type !== 'group' && item.type !== 'artboard') _panelSel.delete(k);
-    }
+function _onCanvasSelChange() {
+  _panelSel.clear();
+  if (state.activeItemId) _panelSel.add('item:' + state.activeItemId);
+  _version = null;
+}
+
+function _displayDescendants(item) {
+  const result = [];
+  for (const child of state.items) {
+    if (child.parentId !== item.id) continue;
+    if (child.type !== 'group' && child.type !== 'artboard') result.push(child.id);
+    else result.push(..._displayDescendants(child));
   }
-  for (const id of state.selection) {
-    _panelSel.add('item:' + id);
-  }
+  return result;
 }
 
 // ── Footer bulk actions ───────────────────────────────────────────────────────
