@@ -145,7 +145,7 @@ export function sanitizeItems(items) {
 export function effectiveVisible(item) {
   let cur = item;
   while (cur) {
-    if (!cur.visible) return false;
+    if (cur.visible === false) return false;
     cur = cur.parentId ? state.items.find(i => i.id === cur.parentId) : null;
   }
   return true;

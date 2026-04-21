@@ -99,6 +99,7 @@ function _rebuildFooter() {
   const allLocked = hasItems && selected.every(it => it.locked);
 
   const addBtn   = _footerBtn('add',                       'Add layer',       _addRootItem);
+  const copyBtn  = _footerBtn('copy',                      'Duplicate selected', _copySelected);
   const trashBtn = _footerBtn('trash',                     'Delete selected', _deleteSelected);
   const visBtn   = _footerBtn(allVis ? 'visible' : 'hidden', allVis ? 'Hide selected' : 'Show selected', _masterToggleVisible);
   const lockBtn  = _footerBtn(allLocked ? 'locked' : 'unlocked', allLocked ? 'Unlock selected' : 'Lock selected', _masterToggleLock);
@@ -107,11 +108,12 @@ function _rebuildFooter() {
   lockBtn.classList.add('lp-footer-btn--lock');
   if (allLocked) lockBtn.classList.add('lp-footer-btn--locked');
 
+  copyBtn.disabled  = !hasItems;
   trashBtn.disabled = !hasItems;
   visBtn.disabled   = !hasItems;
   lockBtn.disabled  = !hasItems;
 
-  _panelFooter.append(addBtn, trashBtn, visBtn, lockBtn);
+  _panelFooter.append(addBtn, copyBtn, trashBtn, visBtn, lockBtn);
 }
 
 function _footerBtn(icon, title, handler) {
@@ -139,10 +141,8 @@ function _itemEl(node, depth) {
 
   if (isGroup && item.id === state.activeItemId)  row.classList.add('lp-layer--active');
   if (isArtboard)                                 row.classList.add('lp-layer--artboard');
-  if (_panelSel.has('item:' + item.id))           row.classList.add(isGroup ? 'lp-layer--panel-selected' : 'lp-shape--selected');
-  if (!isGroup && state.selection.has(item.id))   row.classList.add('lp-shape--selected');
-  if (!effectiveVisible(item))                    row.classList.add(isGroup ? 'lp-layer--eff-hidden' : 'lp-shape--hidden');
-  if (isGroup && effectiveLocked(item) && !item.locked) row.classList.add('lp-layer--eff-locked');
+  if (isGroup && _panelSel.has('item:' + item.id)) row.classList.add('lp-layer--panel-selected');
+if (isGroup && effectiveLocked(item) && !item.locked) row.classList.add('lp-layer--eff-locked');
 
   // Expand chevron
   if (isGroup || hasChildren) {
@@ -156,10 +156,6 @@ function _itemEl(node, depth) {
       _refresh();
     });
     row.appendChild(chevron);
-  } else {
-    const spacer = _el('span', '');
-    spacer.style.cssText = 'width:16px;flex-shrink:0;display:inline-block;';
-    row.appendChild(spacer);
   }
 
   // Icon: artboard and display items get type icons; plain groups do not
@@ -193,13 +189,14 @@ function _itemEl(node, depth) {
     actions.appendChild(addLayerBtn);
   }
 
+  const isHidden = item.visible === false;
   const visBtn = _el('button', 'lp-btn');
-  visBtn.title = item.visible ? 'Hide' : 'Show';
-  visBtn.appendChild(getIconSync('ui', item.visible ? 'visible' : 'hidden'));
-  if (!item.visible) visBtn.classList.add('lp-btn--is-hidden');
+  visBtn.title = isHidden ? 'Show' : 'Hide';
+  visBtn.appendChild(getIconSync('ui', isHidden ? 'hidden' : 'visible'));
+  if (isHidden) visBtn.classList.add('lp-btn--is-hidden');
   visBtn.addEventListener('click', e => {
     e.stopPropagation();
-    item.visible = !item.visible;
+    item.visible = item.visible === false; // false→true, true/undefined→false
     _version = null;
     render();
   });
@@ -212,10 +209,14 @@ function _itemEl(node, depth) {
     e.stopPropagation();
     item.locked = !item.locked;
     _version = null;
-    _refresh();
+    render();
   });
 
-  actions.append(visBtn, lockBtn);
+  const dot = _el('span', 'lp-dot');
+  dot.appendChild(getIconSync('ui', 'dot'));
+  if (_hasSelectedDescendant(item)) dot.classList.add('lp-dot--active');
+
+  actions.append(visBtn, lockBtn, dot);
   row.appendChild(actions);
 
   row.addEventListener('dblclick', e => {
@@ -254,7 +255,7 @@ function _itemEl(node, depth) {
   });
 
   row.addEventListener('mousedown', e => {
-    if (e.button !== 0 || e.target.closest('button')) return;
+    if (e.button !== 0 || e.target.closest('button') || e.target.closest('input')) return;
     _startDrag(e, item, row, wrap);
   });
 
@@ -287,6 +288,14 @@ function _itemName(item) {
     return item.type === 'text-line' ? 'Text' : 'Text Block';
   }
   return { path: 'Path', group: 'Group', artboard: 'Artboard' }[item.type] ?? item.type;
+}
+
+function _hasSelectedDescendant(item) {
+  if (state.selection.has(item.id)) return true;
+  for (const child of state.items) {
+    if (child.parentId === item.id && _hasSelectedDescendant(child)) return true;
+  }
+  return false;
 }
 
 // ── Panel selection helpers ───────────────────────────────────────────────────
@@ -420,6 +429,73 @@ function _masterToggleLock() {
     do()   { for (const { it } of snaps) it.locked = target;   _version = null; render(); },
     undo() { for (const { it, was } of snaps) it.locked = was; _version = null; render(); },
   });
+}
+
+function _copySelected() {
+  const items = _resolveSelected();
+  if (!items.length) return;
+
+  // Exclude items whose ancestor is also selected — they'll be cloned as part of that ancestor
+  const selectedIds = new Set(items.map(i => i.id));
+  const roots = items.filter(i => !i.parentId || !selectedIds.has(i.parentId));
+
+  const newItems = [];
+  const idMap    = {};
+
+  const cloneSubtree = (item, newParentId, isRoot) => {
+    const newId    = nextId(item.type);
+    idMap[item.id] = newId;
+    const copy     = {
+      ...item,
+      id:       newId,
+      parentId: newParentId,
+      name:     isRoot ? _copyName(item, newItems) : item.name,
+      attrs:    item.attrs ? { ...item.attrs } : undefined,
+      style:    item.style ? { ...item.style } : undefined,
+    };
+    newItems.push(copy);
+    for (const child of state.items.filter(i => i.parentId === item.id)) {
+      cloneSubtree(child, newId, false);
+    }
+  };
+
+  for (const root of roots) cloneSubtree(root, root.parentId, true);
+
+  const insertAfterId = items[items.length - 1].id;
+  const newItemIds    = new Set(newItems.map(i => i.id));
+  const oldSel        = new Set(_panelSel);
+
+  execute({
+    do() {
+      const pos  = state.items.findIndex(i => i.id === insertAfterId);
+      const at   = pos >= 0 ? pos + 1 : state.items.length;
+      state.items = [
+        ...state.items.slice(0, at),
+        ...newItems,
+        ...state.items.slice(at),
+      ];
+      _panelSel = new Set(
+        newItems.filter(i => !idMap[i.parentId]).map(i => 'item:' + i.id),
+      );
+      state.selection = _panelDisplaySelection();
+      _version = null; render();
+    },
+    undo() {
+      state.items     = state.items.filter(i => !newItemIds.has(i.id));
+      _panelSel       = oldSel;
+      state.selection = _panelDisplaySelection();
+      _version = null; render();
+    },
+  });
+}
+
+function _copyName(item, pendingItems = []) {
+  const base     = item.name ?? _itemName(item);
+  const stripped = base.replace(/ copy \d+$/, '');
+  const allItems = [...state.items, ...pendingItems];
+  let n = 1;
+  while (allItems.some(i => i.id !== item.id && (i.name ?? _itemName(i)) === `${stripped} copy ${n}`)) n++;
+  return `${stripped} copy ${n}`;
 }
 
 // ── Item operations ───────────────────────────────────────────────────────────

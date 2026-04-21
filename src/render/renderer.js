@@ -143,10 +143,7 @@ function _buildRenderTree(items) {
   for (const item of items) byId[item.id] = { item, children: [] };
 
   const roots = [];
-  // Iterate in reverse so that array order is preserved in roots[]
-  // (last item in array = first appended = lowest index = rendered first = behind)
-  for (let i = items.length - 1; i >= 0; i--) {
-    const item = items[i];
+  for (const item of items) {
     const node = byId[item.id];
     if (item.parentId && byId[item.parentId]) {
       byId[item.parentId].children.push(node);
@@ -190,9 +187,9 @@ function _renderNodes(nodes, parentSvgEl, activeMode, viewState) {
       if (!gEl) {
         gEl = document.createElementNS(NS, 'g');
         gEl.id = `item-${item.id}`;
-        parentSvgEl.appendChild(gEl);
         containerElMap.set(item.id, gEl);
       }
+      if (gEl.parentNode !== parentSvgEl) parentSvgEl.appendChild(gEl);
       gEl.style.display = effectiveVisible(item) ? '' : 'none';
 
       if (isArtboard) {
@@ -232,9 +229,9 @@ function _syncDisplayItem(item, parentSvgEl, activeMode, viewState) {
   if (!el) {
     el = ot.makeElement(item);
     el.dataset.shapeId = item.id;
-    parentSvgEl.appendChild(el);
     elMap.set(item.id, el);
   }
+  if (el.parentNode !== parentSvgEl) parentSvgEl.appendChild(el);
 
   const modeStyle   = activeMode?.resolveStyle(item, state) ?? null;
   const renderItem  = modeStyle
