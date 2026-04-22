@@ -113,12 +113,18 @@ export function rectToPathD({ x, y, width, height }) {
 }
 
 /**
- * Convert an ellipse {cx, cy, rx, ry} to a path d string (two arcs).
+ * Convert an ellipse {cx, cy, rx, ry} to a path d string using 4 cubic beziers.
+ * κ ≈ 0.5523 is the standard constant for ellipse-to-bezier approximation.
  */
 export function ellipseToPathD({ cx, cy, rx, ry }) {
+  const k = 0.5522847498;
+  const kx = rx * k;
+  const ky = ry * k;
   return [
     `M${cx - rx} ${cy}`,
-    `A${rx} ${ry} 0 0 1 ${cx + rx} ${cy}`,
-    `A${rx} ${ry} 0 0 1 ${cx - rx} ${cy}Z`,
+    `C${cx - rx} ${cy - ky} ${cx - kx} ${cy - ry} ${cx} ${cy - ry}`,
+    `C${cx + kx} ${cy - ry} ${cx + rx} ${cy - ky} ${cx + rx} ${cy}`,
+    `C${cx + rx} ${cy + ky} ${cx + kx} ${cy + ry} ${cx} ${cy + ry}`,
+    `C${cx - kx} ${cy + ry} ${cx - rx} ${cy + ky} ${cx - rx} ${cy}Z`,
   ].join('');
 }

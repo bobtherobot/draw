@@ -126,8 +126,8 @@ function _drawNodes(nodes, activeMode, viewState, editingId) {
       _ctx.restore();
 
     } else if (item.type === 'group') {
-      const tx = item.attrs.tx ?? 0;
-      const ty = item.attrs.ty ?? 0;
+      const tx = item.attrs?.tx ?? 0;
+      const ty = item.attrs?.ty ?? 0;
       if (tx || ty) {
         _ctx.save();
         _ctx.translate(tx, ty);
