@@ -125,8 +125,12 @@ function _wireCanvasWheel(canvasWrap) {
 }
 
 function _onMouseDown(e) {
+  e.preventDefault(); // prevent browser text selection during canvas drags
+
   const hit    = hitTest(e.clientX, e.clientY, getObjectType, getElement);
   const intent = computeIntent(hit);
+  // Scale/rotate handles always belong to the select tool, regardless of the active drawing tool.
+  if (hit?.isHandle) intent.effectiveTool = 'select';
   state.intent  = intent;
 
   const handled = dispatch(intent, 'mousedown', _appCtx, e);

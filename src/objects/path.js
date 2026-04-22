@@ -75,10 +75,19 @@ export class PathObjectType extends ObjectType {
 
   translate(shape, dx, dy) {
     shape.attrs.d = translatePathD(shape.attrs.d ?? '', dx, dy);
+    if (shape._rotDisplay) {
+      const { bbox, center } = shape._rotDisplay;
+      shape._rotDisplay = {
+        ...shape._rotDisplay,
+        bbox:   { ...bbox,   x: bbox.x + dx,      y: bbox.y + dy },
+        center: { x: center.x + dx, y: center.y + dy },
+      };
+    }
   }
 
   scale(shape, sx, sy, ox, oy) {
     shape.attrs.d = scalePathD(shape.attrs.d ?? '', sx, sy, ox, oy);
+    delete shape._rotDisplay;
   }
 
   bakeRotation(shape, angleDeg, cx, cy) {

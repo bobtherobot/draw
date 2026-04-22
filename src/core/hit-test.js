@@ -36,6 +36,7 @@ export function hitTest(screenX, screenY, getObjectType, getElement) {
         objectType: shape?.type ?? null,
         part:       handle.dataset.handle,
         shape:      shape ?? null,
+        isHandle:   true,
       };
     }
   }

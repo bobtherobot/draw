@@ -127,6 +127,12 @@ export const state = {
    * @type {string|null}
    */
   operation: null,
+
+  /**
+   * Set during a rotation drag; null otherwise.
+   * @type {{ bbox: {x,y,width,height}, center: {x,y}, angle: number } | null}
+   */
+  activeRotation: null,
 };
 
 /** Return the active container item, falling back to the first root group. */

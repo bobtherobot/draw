@@ -260,20 +260,22 @@ export class SelectTool extends Tool {
     if (bb) {
       this._rotCenter = { x: bb.x + bb.width / 2, y: bb.y + bb.height / 2 };
       this._rotStart  = Math.atan2(this._dragStart.y - this._rotCenter.y, this._dragStart.x - this._rotCenter.x) * 180 / Math.PI;
+      this._ctx.state.activeRotation = { bbox: bb, center: this._rotCenter, angle: 0 };
     }
   }
 
-  _doRotate(pos, snap) {
+  _doRotate(pos, doSnap) {
     if (!this._rotCenter) return;
     const angle = Math.atan2(pos.y - this._rotCenter.y, pos.x - this._rotCenter.x) * 180 / Math.PI;
     let   delta = angle - this._rotStart;
-    if (snap) delta = Math.round(delta / 15) * 15;
+    if (doSnap) delta = Math.round(delta / 15) * 15;
+    if (this._ctx.state.activeRotation) this._ctx.state.activeRotation.angle = delta;
     for (const id of this._ctx.state.selection) {
       const shape = findItem(id);
       if (!shape) continue;
-      const snap = this._snapshots.get(id);
-      if (!snap) continue;
-      _restoreShape(shape, snap);
+      const shapeSnap = this._snapshots.get(id);
+      if (!shapeSnap) continue;
+      _restoreShape(shape, shapeSnap);
       this._ctx.getObjectType(shape.type)?.bakeRotation(shape, delta, this._rotCenter.x, this._rotCenter.y);
     }
   }
@@ -307,10 +309,15 @@ export class SelectTool extends Tool {
   _commitTransform() {
     const snapshots = new Map(this._snapshots);
     const ctx       = this._ctx;
+    const activeRot = ctx.state.activeRotation ? { ...ctx.state.activeRotation } : null;
     const postSnaps = new Map();
     for (const id of ctx.state.selection) {
       const shape = findItem(id);
-      if (shape) postSnaps.set(id, _cloneShape(shape));
+      if (shape) {
+        const snap = _cloneShape(shape);
+        if (activeRot) snap._rotDisplay = activeRot;
+        postSnaps.set(id, snap);
+      }
     }
     ctx.execute({
       do() {
@@ -438,7 +445,10 @@ export class SelectTool extends Tool {
     this._scaleHandle = null;
     this._rotCenter   = null;
     this._rotStart    = null;
-    if (this._ctx) this._ctx.state.operation = null;
+    if (this._ctx) {
+      this._ctx.state.operation     = null;
+      this._ctx.state.activeRotation = null;
+    }
   }
 }
 
@@ -456,7 +466,7 @@ function _restoreShape(shape, snap) {
   Object.assign(shape.attrs, snap.attrs);
   Object.assign(shape.style, snap.style);
   for (const k of ['_text','_fontSize','_fontFamily','_textAlign','_boxWidth','_boxHeight',
-                   '_scaleX','_scaleY','_rotation','_rotCx','_rotCy']) {
+                   '_scaleX','_scaleY','_rotation','_rotCx','_rotCy','_rotDisplay']) {
     if (k in snap) shape[k] = snap[k];
     else delete shape[k];
   }

@@ -1,5 +1,6 @@
 import { ObjectType } from './base.js';
 import { nextId } from '../core/state.js';
+import { rotatePoint } from '../geometry/path-utils.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 
@@ -105,15 +106,16 @@ export class FreeTextObjectType extends ObjectType {
   }
 
   getBBox(shape, el) {
-    const hasTransform = (shape._scaleX ?? 1) !== 1 || (shape._scaleY ?? 1) !== 1 || (shape._rotation ?? 0) !== 0;
+    const rotation   = shape._rotation ?? 0;
+    const hasScale   = (shape._scaleX ?? 1) !== 1 || (shape._scaleY ?? 1) !== 1;
+    const hasTransform = hasScale || rotation !== 0;
     if (el && !hasTransform) {
       try {
         const b = el.getBBox();
         if (b.width > 0 || b.height > 0) return b;
       } catch (_) {}
     }
-    // Fallback: measure with canvas API (always used when a transform is present,
-    // since el.getBBox() returns pre-transform local coords)
+    // Canvas measurement gives the pre-transform rect; rotation is applied below.
     const fs    = shape._fontSize   ?? 14;
     const ff    = shape._fontFamily ?? 'sans-serif';
     const lines = (shape._text ?? '').split('\n');
@@ -125,11 +127,29 @@ export class FreeTextObjectType extends ObjectType {
     const bx    = align === 'center' ? shape.attrs.x - maxW / 2
                 : align === 'right'  ? shape.attrs.x - maxW
                 :                      shape.attrs.x;
+    const by    = shape.attrs.y;
+    const bw    = maxW;
+    const bh    = lh * lines.length * sy;
+
+    if (rotation === 0) return { x: bx, y: by, width: bw, height: bh };
+
+    // Rotate all 4 corners and return the axis-aligned bounding box.
+    const rcx = shape._rotCx ?? shape.attrs.x;
+    const rcy = shape._rotCy ?? (shape.attrs.y + fs);
+    const corners = [
+      { x: bx,      y: by },
+      { x: bx + bw, y: by },
+      { x: bx + bw, y: by + bh },
+      { x: bx,      y: by + bh },
+    ];
+    const rotated = corners.map(p => rotatePoint(p.x, p.y, rcx, rcy, rotation));
+    const xs = rotated.map(p => p.x);
+    const ys = rotated.map(p => p.y);
     return {
-      x:      bx,
-      y:      shape.attrs.y,
-      width:  maxW,
-      height: lh * lines.length * sy,
+      x:      Math.min(...xs),
+      y:      Math.min(...ys),
+      width:  Math.max(...xs) - Math.min(...xs),
+      height: Math.max(...ys) - Math.min(...ys),
     };
   }
 
