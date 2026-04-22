@@ -36,8 +36,7 @@ const dom = buildApp();
 
 applyTheme(state.options.theme);
 
-// Renderer needs SVG groups set up by buildApp
-initRenderer(dom.svg);
+initRenderer(dom.canvas);
 
 // Keyboard must be initialized before toolbar so setActiveTool is available
 initKeyboard();
@@ -50,14 +49,15 @@ initCommandbar(dom.commandbar);
 initIO();
 
 // Zone registration — elements available after buildApp()
-registerZone(dom.svg,       'canvas');
+registerZone(dom.canvas,    'canvas');
 registerZone(dom.toolbar,   'toolbar');
 registerZone(dom.menubar,   'menubar');
 registerZone(dom.commandbar,'commandbar');
 // Panels register their own zones inside initLayersPanel / initStylePanel
 
-// Wire viewport changes (zoom/pan) → full render pipeline
+// Wire viewport changes (zoom/pan) and canvas resize → full render pipeline
 on('viewport-change', render);
+on('resize', render);
 
 fitToArtboard();
 render();

@@ -1,5 +1,4 @@
 import { Tool } from './base.js';
-import { updateViewBox } from '../viewport.js';
 
 const _canvas = () => document.getElementById('canvas');
 
@@ -33,7 +32,7 @@ export class HandTool extends Tool {
     const z = this._vpSnap.zoom;
     this._ctx.state.viewport.x = this._vpSnap.x - (e.clientX - this._anchor.x) / z;
     this._ctx.state.viewport.y = this._vpSnap.y - (e.clientY - this._anchor.y) / z;
-    updateViewBox();
+    this._ctx.render();
   }
 
   onMouseUp() {

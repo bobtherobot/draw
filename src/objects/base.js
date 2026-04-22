@@ -29,7 +29,15 @@ export class ObjectType {
   }
 
   /**
-   * Create the SVG element for first render.
+   * Draw this shape onto a Canvas 2D context. Called every render frame.
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {object} shape
+   * @param {{mode:string, zoom:number}} viewState
+   */
+  draw(ctx, shape, viewState) { throw new Error(`${this.constructor.name}: draw not implemented`); }
+
+  /**
+   * Create the SVG element for first render (used by SVG export path).
    * @param {object} shape
    * @param {string} NS  - SVG namespace URI
    * @returns {SVGElement}
@@ -37,7 +45,7 @@ export class ObjectType {
   makeElement(shape, NS) { throw new Error(`${this.constructor.name}: makeElement not implemented`); }
 
   /**
-   * Sync an existing SVG element to current shape data. Called every render.
+   * Sync an existing SVG element to current shape data (used by SVG export path).
    * @param {SVGElement} el
    * @param {object}     shape
    * @param {{mode:string, zoom:number}} viewState

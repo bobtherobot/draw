@@ -18,6 +18,8 @@ export class GroupObjectType extends ObjectType {
     };
   }
 
+  draw() { /* renderer handles group recursion directly */ }
+
   makeElement(shape) {
     const el = document.createElementNS(NS, 'g');
     this.syncElement(el, shape, { mode: 'normal', zoom: 1 });

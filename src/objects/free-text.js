@@ -42,6 +42,46 @@ export class FreeTextObjectType extends ObjectType {
     };
   }
 
+  draw(ctx, shape, _viewState) {
+    const x        = shape.attrs.x   ?? 0;
+    const y        = shape.attrs.y   ?? 0;
+    const fs       = shape._fontSize   ?? 14;
+    const ff       = shape._fontFamily ?? 'sans-serif';
+    const lh       = fs * 1.3;
+    const align    = shape._textAlign  ?? 'left';
+    const fill     = shape.style.fill  ?? '#000000';
+    const scaleX   = shape._scaleX    ?? 1;
+    const scaleY   = shape._scaleY    ?? 1;
+    const rotation = shape._rotation  ?? 0;
+    const rotCx    = shape._rotCx     ?? x;
+    const rotCy    = shape._rotCy     ?? (y + fs);
+
+    ctx.save();
+
+    if (rotation !== 0) {
+      ctx.translate(rotCx, rotCy);
+      ctx.rotate(rotation * Math.PI / 180);
+      ctx.translate(-rotCx, -rotCy);
+    }
+    if (scaleX !== 1 || scaleY !== 1) {
+      ctx.translate(x, y);
+      ctx.scale(scaleX, scaleY);
+      ctx.translate(-x, -y);
+    }
+
+    ctx.font         = `${fs}px ${ff}`;
+    ctx.fillStyle    = fill;
+    ctx.textAlign    = align === 'center' ? 'center' : align === 'right' ? 'right' : 'left';
+    ctx.textBaseline = 'alphabetic';
+
+    const lines = (shape._text ?? '').split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      ctx.fillText(lines[i] || '', x, y + fs + i * lh);
+    }
+
+    ctx.restore();
+  }
+
   makeElement(shape) {
     const el = document.createElementNS(NS, 'text');
     this.syncElement(el, shape, { mode: 'normal', zoom: 1 });

@@ -15,6 +15,8 @@ export class ArtboardObjectType extends ObjectType {
     };
   }
 
+  draw() { /* renderer handles artboard backgrounds and clipping directly */ }
+
   makeElement() {
     // Artboards render as container <g>s; the renderer handles them specially.
     const NS = 'http://www.w3.org/2000/svg';

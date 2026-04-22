@@ -1,56 +1,46 @@
 /**
- * Render pipeline orchestrator.
+ * Canvas 2D render pipeline (v3).
  *
  * Pipeline:
  *   1. activeMode.beforeRender()
- *   2. renderArtboard()
- *   3. _renderTree()  — builds item tree, recurses depth-first, no type branches
- *   4. renderTextGuides()
- *   5. renderSelection()
- *   6. activeMode.afterRender()
- *   7. panel refreshes (via 'render' event)
+ *   2. clearRect
+ *   3. applyTransform (doc-space viewport)
+ *   4. _drawArtboards() — white fills + borders
+ *   5. _drawTree()      — items depth-first, artboards clip children
+ *   6. ctx.restore()    → back to screen space
+ *   7. renderSelection() → canvas selection handles (Phase 4)
+ *   8. overlay flushAll → tool overlays in screen space (Phase 6)
+ *   9. activeMode.afterRender()
+ *  10. emit('render') → panel refreshes
  */
 import { state, effectiveVisible } from '../core/state.js';
-import { getObjectType, getMode } from '../core/registry.js';
-import { emit }              from '../core/events.js';
-import { updateViewBox }     from '../viewport.js';
-import { OverlayManager }    from './overlay.js';
-import { renderTextGuides }  from './text-guides.js';
-import { renderSelection }   from './selection.js';
-import { getEditingShapeId } from '../textedit.js';
+import { getObjectType, getMode }  from '../core/registry.js';
+import { emit }                    from '../core/events.js';
+import { applyTransform }          from '../viewport.js';
+import { OverlayManager }          from './overlay.js';
+import { renderSelection }         from './selection.js';
+import { getEditingShapeId }       from '../textedit.js';
 
-const NS = 'http://www.w3.org/2000/svg';
-
-// ── Module-level refs set once by init() ────────────────────────────────────
-let _artboardLayer  = null;
-let _docLayer       = null;
-let _svgDefs        = null;
-let _textGuides     = null;
+// ── Module-level refs set once by initRenderer() ─────────────────────────────
+let _canvas         = null;
+let _ctx            = null;
 let _overlayManager = null;
 let _selectionLayer = null;
 
-/** itemId → SVGElement  (display items and container <g>s) */
-const elMap = new Map();
-
-/** itemId → SVGGElement  (container <g> elements in the SVG tree) */
-const containerElMap = new Map();
-
 /**
- * Initialize the renderer with the SVG canvas element.
- * @param {SVGElement} svg  — the #canvas SVG element
+ * Initialize the renderer with the <canvas> element.
+ * @param {HTMLCanvasElement} canvas
  */
-export function initRenderer(svg) {
-  _artboardLayer  = svg.querySelector('#artboard-layer');
-  _docLayer       = svg.querySelector('#doc-layer');
-  _svgDefs        = svg.querySelector('defs');
-  _textGuides     = svg.querySelector('#text-guides');
-  _overlayManager = new OverlayManager(svg.querySelector('#overlay'));
+export function initRenderer(canvas) {
+  _canvas         = canvas;
+  _ctx            = canvas.getContext('2d');
+  _overlayManager = new OverlayManager();
   _selectionLayer = _overlayManager.acquireLayer('selection');
 }
 
-/** Lookup the live SVG element for a given item id. */
-export function getElement(itemId) {
-  return elMap.get(itemId) ?? null;
+/** Canvas has no per-item DOM elements; returns null for all ids. */
+export function getElement(_itemId) {
+  return null;
 }
 
 /** Return the OverlayManager (for tools to call acquireLayer). */
@@ -63,86 +53,45 @@ export function getOverlay() {
  * Call after any state mutation.
  */
 export function render() {
-  if (!_docLayer) return; // not yet initialized
+  if (!_ctx) return;
 
   const activeMode = getMode(state.activeMode);
-
   if (activeMode) activeMode.beforeRender({ state, getObjectType, getElement });
 
-  updateViewBox();
-  _renderArtboard();
-  _renderTree(activeMode);
-  renderTextGuides(_textGuides, state);
+  // ── Doc-space pass ────────────────────────────────────────────────────────
+  _ctx.clearRect(0, 0, _canvas.width, _canvas.height);
+  _ctx.save();
+  applyTransform(_ctx);
+
+  _drawArtboards();
+  _drawTree(activeMode);
+
+  _ctx.restore();
+
+  // ── Screen-space pass ─────────────────────────────────────────────────────
   renderSelection(_selectionLayer, state, getObjectType, getElement);
+  _overlayManager.flushAll(_ctx);
 
   if (activeMode) activeMode.afterRender({ state, getObjectType, getElement });
-
   emit('render', null);
 }
 
 // ── Private ──────────────────────────────────────────────────────────────────
 
-function _renderArtboard() {
-  const artboards = state.items.filter(i => i.type === 'artboard');
-  const liveArtboardIds = new Set(artboards.map(a => a.id));
-
-  // Remove background rects for deleted artboards
-  for (const el of _artboardLayer.querySelectorAll('rect.artboard-rect')) {
-    if (!liveArtboardIds.has(el.dataset.artboardId)) el.remove();
-  }
-  // Remove clip paths for deleted artboards
-  if (_svgDefs) {
-    for (const cp of _svgDefs.querySelectorAll('clipPath[data-artboard-id]')) {
-      if (!liveArtboardIds.has(cp.dataset.artboardId)) cp.remove();
-    }
-  }
-
-  for (const ab of artboards) {
+function _drawArtboards() {
+  for (const ab of state.items.filter(i => i.type === 'artboard')) {
     const { x, y, width, height } = ab.attrs;
-
-    // Background rect in artboard layer
-    let rect = _artboardLayer.querySelector(`rect.artboard-rect[data-artboard-id="${ab.id}"]`);
-    if (!rect) {
-      rect = document.createElementNS(NS, 'rect');
-      rect.classList.add('artboard-rect');
-      rect.dataset.artboardId = ab.id;
-      _artboardLayer.appendChild(rect);
-    }
-    rect.setAttribute('x',      x);
-    rect.setAttribute('y',      y);
-    rect.setAttribute('width',  width);
-    rect.setAttribute('height', height);
-
-    // Per-artboard clip path in <defs>
-    if (_svgDefs) {
-      const clipId = `clip-ab-${ab.id}`;
-      let clip = _svgDefs.querySelector(`#${clipId}`);
-      if (!clip) {
-        clip = document.createElementNS(NS, 'clipPath');
-        clip.id = clipId;
-        clip.dataset.artboardId = ab.id;
-        const cr = document.createElementNS(NS, 'rect');
-        clip.appendChild(cr);
-        _svgDefs.appendChild(clip);
-      }
-      const cr = clip.querySelector('rect');
-      cr.setAttribute('x',      x);
-      cr.setAttribute('y',      y);
-      cr.setAttribute('width',  width);
-      cr.setAttribute('height', height);
-    }
+    _ctx.fillStyle = '#ffffff';
+    _ctx.fillRect(x, y, width, height);
+    _ctx.strokeStyle = '#cccccc';
+    _ctx.lineWidth = 1 / state.viewport.zoom;
+    _ctx.strokeRect(x, y, width, height);
   }
 }
 
-/**
- * Build a render tree from the flat items array.
- * Returns root nodes in array order, each with a `children` array.
- * Mirrors the _buildTree logic in layers-panel.js.
- */
 function _buildRenderTree(items) {
   const byId = {};
   for (const item of items) byId[item.id] = { item, children: [] };
-
   const roots = [];
   for (const item of items) {
     const node = byId[item.id];
@@ -155,90 +104,52 @@ function _buildRenderTree(items) {
   return roots;
 }
 
-function _renderTree(activeMode) {
-  const viewState  = { mode: state.activeMode, zoom: state.viewport.zoom };
-  const liveIds    = new Set(state.items.map(i => i.id));
-
-  // Remove container <g>s for deleted items
-  for (const [id, el] of containerElMap) {
-    if (!liveIds.has(id)) { el.remove(); containerElMap.delete(id); }
-  }
-  // Remove display elements for deleted items
-  for (const [id, el] of elMap) {
-    if (!liveIds.has(id)) { el.remove(); elMap.delete(id); }
-  }
-
-  const roots = _buildRenderTree(state.items);
-  _renderNodes(roots, _docLayer, activeMode, viewState);
+function _drawTree(activeMode) {
+  const zoom      = state.viewport.zoom;
+  const viewState = { mode: state.activeMode, zoom };
+  const editingId = getEditingShapeId();
+  const roots     = _buildRenderTree(state.items);
+  _drawNodes(roots, activeMode, viewState, editingId);
 }
 
-/**
- * Recursively render a list of tree nodes into the given SVG parent element.
- * Maintains correct DOM order by comparing each element's nextSibling.
- */
-function _renderNodes(nodes, parentSvgEl, activeMode, viewState) {
-  const expectedEls = [];
-
+function _drawNodes(nodes, activeMode, viewState, editingId) {
   for (const { item, children } of nodes) {
-    const isArtboard  = item.type === 'artboard';
-    const isContainer = isArtboard || item.type === 'group' || children.length > 0;
+    if (!effectiveVisible(item)) continue;
 
-    if (isContainer) {
-      let gEl = containerElMap.get(item.id);
-      if (!gEl) {
-        gEl = document.createElementNS(NS, 'g');
-        gEl.id = `item-${item.id}`;
-        containerElMap.set(item.id, gEl);
+    if (item.type === 'artboard') {
+      // Clip children to artboard bounds
+      _ctx.save();
+      _ctx.beginPath();
+      _ctx.rect(item.attrs.x, item.attrs.y, item.attrs.width, item.attrs.height);
+      _ctx.clip();
+      _drawNodes(children, activeMode, viewState, editingId);
+      _ctx.restore();
+
+    } else if (item.type === 'group') {
+      const tx = item.attrs.tx ?? 0;
+      const ty = item.attrs.ty ?? 0;
+      if (tx || ty) {
+        _ctx.save();
+        _ctx.translate(tx, ty);
+        _drawNodes(children, activeMode, viewState, editingId);
+        _ctx.restore();
+      } else {
+        _drawNodes(children, activeMode, viewState, editingId);
       }
-      if (gEl.parentNode !== parentSvgEl) parentSvgEl.appendChild(gEl);
-      gEl.style.display = effectiveVisible(item) ? '' : 'none';
-
-      if (isArtboard) {
-        gEl.setAttribute('clip-path', `url(#clip-ab-${item.id})`);
-      }
-
-      expectedEls.push(gEl);
-
-      if (item.type !== 'group' && !isArtboard) {
-        _syncDisplayItem(item, gEl, activeMode, viewState);
-      }
-
-      _renderNodes(children, gEl, activeMode, viewState);
 
     } else {
-      _syncDisplayItem(item, parentSvgEl, activeMode, viewState);
-      const el = elMap.get(item.id);
-      if (el) expectedEls.push(el);
+      // Display item — skip if currently being text-edited
+      if (item.id !== editingId) {
+        const ot = getObjectType(item.type);
+        if (ot) {
+          const modeStyle  = activeMode?.resolveStyle(item, state) ?? null;
+          const renderItem = modeStyle
+            ? { ...item, style: { ...item.style, ...modeStyle } }
+            : item;
+          ot.draw(_ctx, renderItem, viewState);
+        }
+      }
+      if (children.length) _drawNodes(children, activeMode, viewState, editingId);
     }
   }
-
-  // Enforce DOM order — insertBefore(el, null) is a valid append
-  for (let i = 0; i < expectedEls.length; i++) {
-    const el      = expectedEls[i];
-    const nextExp = i + 1 < expectedEls.length ? expectedEls[i + 1] : null;
-    if (el.nextSibling !== nextExp) {
-      parentSvgEl.insertBefore(el, nextExp);
-    }
-  }
-}
-
-function _syncDisplayItem(item, parentSvgEl, activeMode, viewState) {
-  const ot = getObjectType(item.type);
-  if (!ot) return;
-
-  let el = elMap.get(item.id);
-  if (!el) {
-    el = ot.makeElement(item);
-    el.dataset.shapeId = item.id;
-    elMap.set(item.id, el);
-  }
-  if (el.parentNode !== parentSvgEl) parentSvgEl.appendChild(el);
-
-  const modeStyle   = activeMode?.resolveStyle(item, state) ?? null;
-  const renderItem  = modeStyle
-    ? { ...item, style: { ...item.style, ...modeStyle } }
-    : item;
-
-  ot.syncElement(el, renderItem, viewState);
-  el.style.display = (item.visible === false || item.id === getEditingShapeId()) ? 'none' : '';
 }

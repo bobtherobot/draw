@@ -3,7 +3,7 @@
  * All shape positions are in document space; this module converts to/from screen space.
  */
 import { state, getActiveArtboard } from './core/state.js';
-import { emit }  from './core/events.js';
+import { emit } from './core/events.js';
 
 const MIN_ZOOM = 0.05;
 const MAX_ZOOM = 64;
@@ -49,15 +49,14 @@ export function docToScreen(dx, dy) {
   };
 }
 
-/** Update the SVG viewBox to reflect current viewport state. */
-export function updateViewBox() {
-  const svg  = document.getElementById('canvas');
-  if (!svg) return;
-  const rect = getCanvasRect();
+/**
+ * Apply the current viewport transform to a canvas 2D context.
+ * Call at the start of each render frame (after clearRect, before drawing).
+ * @param {CanvasRenderingContext2D} ctx
+ */
+export function applyTransform(ctx) {
   const { x, y, zoom } = state.viewport;
-  const w = rect.width  / zoom;
-  const h = rect.height / zoom;
-  svg.setAttribute('viewBox', `${x} ${y} ${w} ${h}`);
+  ctx.setTransform(zoom, 0, 0, zoom, -x * zoom, -y * zoom);
 }
 
 /**
@@ -80,7 +79,6 @@ export function zoomAt(factor, sx, sy) {
   state.viewport.y = (sy - rect.top)  / zoom - (sy - rect.top)  / newZoom + y;
   state.viewport.zoom = newZoom;
 
-  updateViewBox();
   emit('viewport-change');
 }
 
@@ -93,7 +91,6 @@ export function panBy(dx, dy) {
   const { zoom } = state.viewport;
   state.viewport.x -= dx / zoom;
   state.viewport.y -= dy / zoom;
-  updateViewBox();
   emit('viewport-change');
 }
 
@@ -112,6 +109,5 @@ export function fitToArtboard() {
   state.viewport.zoom = zoom;
   state.viewport.x    = ax - (rect.width  / zoom - aw) / 2;
   state.viewport.y    = ay - (rect.height / zoom - ah) / 2;
-  updateViewBox();
   emit('viewport-change');
 }

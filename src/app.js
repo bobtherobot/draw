@@ -4,11 +4,9 @@
  * All UI elements are created here and handed to their owning control modules.
  */
 import { state }          from './core/state.js';
-import { emit, on }       from './core/events.js';
+import { emit }           from './core/events.js';
 import { setIconTheme }   from './core/icons.js';
-import { fitToArtboard, updateViewBox, invalidateRect } from './viewport.js';
-
-const SVG_NS = 'http://www.w3.org/2000/svg';
+import { invalidateRect } from './viewport.js';
 
 /** Build and mount the complete application shell into #app. */
 export function buildApp() {
@@ -30,27 +28,16 @@ export function buildApp() {
   workspace.append(toolbar, canvasWrap);
   app.append(menubar, workspace);
 
-  // ── SVG canvas ─────────────────────────────────────────────────────────────
-  const svg = document.createElementNS(SVG_NS, 'svg');
-  svg.id = 'canvas';
-  svg.setAttribute('xmlns', SVG_NS);
-  svg.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;';
+  // ── Canvas 2D ─────────────────────────────────────────────────────────────
+  const canvas = document.createElement('canvas');
+  canvas.id = 'canvas';
+  canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;';
+  canvasWrap.appendChild(canvas);
 
-  // SVG layer structure (matches CLAUDE.md spec)
-  const artboardLayer  = _svgG('artboard-layer');
-  const docRoot        = _svgG('doc-root');
-  const docLayer       = _svgG('doc-layer');   // render root for all items
-  const textGuides     = _svgG('text-guides');
-  const overlayHit     = _svgG('overlay-hit');
-  const overlay        = _svgG('overlay');
-
-  // <defs> for per-artboard clip paths (populated by renderer)
-  const defs = document.createElementNS(SVG_NS, 'defs');
-  svg.appendChild(defs);
-
-  docRoot.append(docLayer, textGuides);
-  svg.append(artboardLayer, docRoot, overlayHit, overlay);
-  canvasWrap.appendChild(svg);
+  // Set initial pixel dimensions synchronously so the first render is sharp.
+  const initRect = canvasWrap.getBoundingClientRect();
+  canvas.width  = Math.round(initRect.width)  || 800;
+  canvas.height = Math.round(initRect.height) || 600;
 
   // ── Status bar ─────────────────────────────────────────────────────────────
   const statusbar = _el('div', 'statusbar');
@@ -61,13 +48,16 @@ export function buildApp() {
   commandbar.id = 'commandbar';
   workspace.appendChild(commandbar);
 
-  // ── Window resize → invalidate cached rect ─────────────────────────────────
-  new ResizeObserver(() => {
+  // ── Resize → update canvas pixel dimensions, re-render ────────────────────
+  new ResizeObserver(entries => {
+    const { width, height } = entries[0].contentRect;
+    canvas.width  = Math.round(width)  || 1;
+    canvas.height = Math.round(height) || 1;
     invalidateRect();
-    updateViewBox();
+    emit('resize');
   }).observe(canvasWrap);
 
-  return { menubar, toolbar, canvasWrap, svg, statusbar, commandbar };
+  return { menubar, toolbar, canvasWrap, canvas, statusbar, commandbar };
 }
 
 /** Apply theme: set data-theme, update icon loader, push cursor CSS vars. */
@@ -104,10 +94,4 @@ function _el(tag, className) {
   const el = document.createElement(tag);
   if (className) el.className = className;
   return el;
-}
-
-function _svgG(id) {
-  const g = document.createElementNS(SVG_NS, 'g');
-  g.id = id;
-  return g;
 }

@@ -60,6 +60,36 @@ export class TextBlockObjectType extends ObjectType {
     };
   }
 
+  draw(ctx, shape, _viewState) {
+    const x    = shape.attrs.x   ?? 0;
+    const y    = shape.attrs.y   ?? 0;
+    const fs   = shape._fontSize   ?? 14;
+    const ff   = shape._fontFamily ?? 'sans-serif';
+    const bw   = shape._boxWidth   ?? 200;
+    const bh   = shape._boxHeight  ?? 100;
+    const lh   = fs * 1.3;
+    const fill = shape.style.fill  ?? '#000000';
+
+    const lines    = wrapText(shape._text ?? '', fs, ff, bw);
+    const maxLines = Math.floor(bh / lh);
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x, y, bw, bh);
+    ctx.clip();
+
+    ctx.font         = `${fs}px ${ff}`;
+    ctx.fillStyle    = fill;
+    ctx.textAlign    = 'left';
+    ctx.textBaseline = 'alphabetic';
+
+    for (let i = 0; i < Math.min(lines.length, maxLines); i++) {
+      ctx.fillText(lines[i], x, y + fs + i * lh);
+    }
+
+    ctx.restore();
+  }
+
   makeElement(shape) {
     const el = document.createElementNS(NS, 'text');
     this.syncElement(el, shape, { mode: 'normal', zoom: 1 });

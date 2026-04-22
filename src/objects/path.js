@@ -11,6 +11,27 @@ export class PathObjectType extends ObjectType {
   get label() { return 'Path'; }
   get icon()  { return 'object-path'; }
 
+  draw(ctx, shape, viewState) {
+    const { zoom } = viewState;
+    const segs = parsePathD(shape.attrs.d ?? '');
+    if (!segs.length) return;
+
+    ctx.beginPath();
+    _replayPath(ctx, segs);
+
+    const fill   = shape.style.fill   ?? 'none';
+    const stroke = shape.style.stroke ?? 'none';
+    if (fill !== 'none') {
+      ctx.fillStyle = fill;
+      ctx.fill();
+    }
+    if (stroke !== 'none') {
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth   = (shape.style.strokeWidth ?? 1) / zoom;
+      ctx.stroke();
+    }
+  }
+
   makeElement(shape) {
     const el = document.createElementNS(NS, 'path');
     this.syncElement(el, shape, { mode: 'normal', zoom: 1 });
@@ -47,28 +68,32 @@ export class PathObjectType extends ObjectType {
     return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
   }
 
-  hitPart(shape, docX, docY, zoom, el) {
-    if (!el) return null;
+  hitPart(shape, docX, docY, zoom, _el) {
     const tol = HIT_TOLERANCE / zoom;
-    const bb  = this.getBBox(shape, el);
+    const bb  = this.getBBox(shape, null);
     if (!bb) return null;
-    // Expand bbox by tolerance for a cheap early-out
+    // Cheap bbox pre-check
     if (docX < bb.x - tol || docX > bb.x + bb.width  + tol) return null;
     if (docY < bb.y - tol || docY > bb.y + bb.height + tol) return null;
-    // Use SVG's own geometry: isPointInStroke / isPointInFill
+
+    const segs = parsePathD(shape.attrs.d ?? '');
+    if (!segs.length) return null;
+
+    // Precise hit test using an offscreen canvas (1×1 is enough — isPointIn* is mathematical)
     try {
-      const svg  = el.ownerSVGElement;
-      const pt   = svg.createSVGPoint();
-      pt.x = docX; pt.y = docY;
-      const fill   = shape.style.fill   !== 'none' && el.isPointInFill(pt);
-      const stroke = shape.style.stroke !== 'none' && el.isPointInStroke(pt);
-      if (fill || stroke) return { part: 'body' };
-    } catch (_) {
-      // Fallback: just use bbox
-      if (docX >= bb.x - tol && docX <= bb.x + bb.width  + tol &&
-          docY >= bb.y - tol && docY <= bb.y + bb.height + tol) {
-        return { part: 'body' };
+      const oc  = new OffscreenCanvas(1, 1);
+      const oct = oc.getContext('2d');
+      oct.beginPath();
+      _replayPath(oct, segs);
+      const inFill   = shape.style.fill   !== 'none' && oct.isPointInPath(docX, docY);
+      if (inFill) return { part: 'body' };
+      if (shape.style.stroke !== 'none') {
+        oct.lineWidth = (shape.style.strokeWidth ?? 1) + tol * 2;
+        if (oct.isPointInStroke(docX, docY)) return { part: 'body' };
       }
+    } catch (_) {
+      // OffscreenCanvas unavailable — fall back to bbox
+      return { part: 'body' };
     }
     return null;
   }
@@ -123,6 +148,18 @@ export class PathObjectType extends ObjectType {
       else if (cmd === 'C')           pts.push({ x: args[4], y: args[5] });
     }
     return pts;
+  }
+}
+
+// Replay parsed SVG path segments onto any canvas 2D context.
+function _replayPath(ctx, segs) {
+  for (const { cmd, args } of segs) {
+    switch (cmd) {
+      case 'M': ctx.moveTo(args[0], args[1]); break;
+      case 'L': ctx.lineTo(args[0], args[1]); break;
+      case 'C': ctx.bezierCurveTo(args[0], args[1], args[2], args[3], args[4], args[5]); break;
+      case 'Z': ctx.closePath(); break;
+    }
   }
 }
 

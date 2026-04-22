@@ -6,6 +6,7 @@ import { Tool } from './base.js';
 import { startEditing, isEditing } from '../textedit.js';
 import { unionBBoxes } from '../geometry/bbox.js';
 import { effectiveVisible, effectiveLocked, allDisplayItems, findItem, sanitizeItems } from '../core/state.js';
+import { hitTest } from '../core/hit-test.js';
 
 const SCALE_HANDLES = ['nw','n','ne','e','se','s','sw','w'];
 const DBL_CLICK_MS  = 400;
@@ -51,7 +52,7 @@ export class SelectTool extends Tool {
 
     // Handle double-click on text shapes
     if (!handle) {
-      const hitId = this._shapeIdAt(e.target);
+      const hitId = this._shapeIdAt(e.clientX, e.clientY);
       if (hitId && hitId === this._lastClickId && now - this._lastClickT < DBL_CLICK_MS) {
         const shape = findItem(hitId);
         if (shape && (shape.type === 'free-text' || shape.type === 'text-block')) {
@@ -73,7 +74,7 @@ export class SelectTool extends Tool {
     }
 
     // Hit-test shapes
-    const hitId = this._shapeIdAt(e.target);
+    const hitId = this._shapeIdAt(e.clientX, e.clientY);
     if (hitId) {
       if (!e.shiftKey && !ctx.state.selection.has(hitId)) {
         ctx.state.selection = new Set([hitId]);
@@ -408,17 +409,12 @@ export class SelectTool extends Tool {
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
 
-  _shapeIdAt(target) {
-    let el = target;
-    while (el && el.id !== 'canvas') {
-      if (el.dataset?.shapeId) {
-        const shape = findItem(el.dataset.shapeId);
-        if (shape && effectiveLocked(shape)) return null;
-        return el.dataset.shapeId;
-      }
-      el = el.parentElement;
-    }
-    return null;
+  _shapeIdAt(screenX, screenY) {
+    const ctx  = this._ctx;
+    const hit  = hitTest(screenX, screenY, ctx.getObjectType, ctx.getElement);
+    if (!hit || hit.isHandle || !hit.shape) return null;
+    if (effectiveLocked(hit.shape)) return null;
+    return hit.shape.id;
   }
 
   _selectionBBox() {
