@@ -7,6 +7,9 @@ import { startEditing, isEditing } from '../textedit.js';
 import { unionBBoxes } from '../geometry/bbox.js';
 import { effectiveVisible, effectiveLocked, allDisplayItems, findItem, sanitizeItems } from '../core/state.js';
 import { hitTest } from '../core/hit-test.js';
+import { handleAtPoint } from '../render/selection.js';
+import { applyTransform } from '../viewport.js';
+import { getCK } from '../render/renderer.js';
 
 const SCALE_HANDLES = ['nw','n','ne','e','se','s','sw','w'];
 const DBL_CLICK_MS  = 400;
@@ -28,8 +31,9 @@ export class SelectTool extends Tool {
     this._rotStart   = null;
     this._lastClickId= null;
     this._lastClickT = 0;
-    this._bandEl     = null;
     this._bandLayer  = null;
+    this._bandStart  = null;
+    this._bandEnd    = null;
     if (this._ctx) this._ctx.render();
   }
 
@@ -44,37 +48,33 @@ export class SelectTool extends Tool {
 
     const ctx      = this._ctx;
     const pos      = ctx.screenToDoc(e.clientX, e.clientY);
-    const handle   = e.target.dataset?.handle;
+    const handle   = handleAtPoint(e.clientX, e.clientY);
     const now      = Date.now();
 
     this._dragStart = pos;
     this._moved     = false;
 
-    // Handle double-click on text shapes
-    if (!handle) {
-      const hitId = this._shapeIdAt(e.clientX, e.clientY);
-      if (hitId && hitId === this._lastClickId && now - this._lastClickT < DBL_CLICK_MS) {
-        const shape = findItem(hitId);
-        if (shape && (shape.type === 'free-text' || shape.type === 'text-block')) {
-          this._lastClickId = null;
-          this._openTextEditor(shape, hitId);
-          return;
-        }
-      }
-      this._lastClickId = hitId ?? null;
-      this._lastClickT  = now;
-    } else {
-      this._lastClickId = null;
-    }
-
     // Scale / rotate handles
     if (handle && ctx.state.selection.size > 0) {
-      if (handle === 'rotate') { this._enterRotate(); return; }
-      if (SCALE_HANDLES.includes(handle)) { this._enterScale(handle); return; }
+      this._lastClickId = null;
+      if (handle.part === 'rotate') { this._enterRotate(); return; }
+      if (SCALE_HANDLES.includes(handle.part)) { this._enterScale(handle.part); return; }
     }
 
     // Hit-test shapes
     const hitId = this._shapeIdAt(e.clientX, e.clientY);
+
+    // Handle double-click on text shapes
+    if (hitId && hitId === this._lastClickId && now - this._lastClickT < DBL_CLICK_MS) {
+      const shape = findItem(hitId);
+      if (shape && (shape.type === 'free-text' || shape.type === 'text-block')) {
+        this._lastClickId = null;
+        this._openTextEditor(shape, hitId);
+        return;
+      }
+    }
+    this._lastClickId = hitId ?? null;
+    this._lastClickT  = now;
     if (hitId) {
       if (!e.shiftKey && !ctx.state.selection.has(hitId)) {
         ctx.state.selection = new Set([hitId]);
@@ -92,9 +92,9 @@ export class SelectTool extends Tool {
       this._mode      = 'band';
       ctx.state.operation = 'band';
       this._bandLayer = ctx.overlay.acquireLayer('select-band');
-      this._bandEl    = this._bandLayer.borrow('rect');
-      this._bandEl.setAttribute('class', 'rubber-band');
-      this._bandEl.setAttribute('vector-effect', 'non-scaling-stroke');
+      this._bandStart = pos;
+      this._bandEnd   = pos;
+      this._bandLayer.addCall(canvasCtx => this._drawBand(canvasCtx));
       ctx.render();
     }
   }
@@ -117,16 +117,11 @@ export class SelectTool extends Tool {
         if (!ot) continue;
         _restoreShape(shape, snap);
         ot.translate(shape, dx, dy);
-        const el = ctx.getElement(id);
-        if (el) ot.syncElement(el, shape, { mode: ctx.state.activeMode, zoom: ctx.state.viewport.zoom });
       }
       ctx.render();
     } else if (this._mode === 'band') {
-      const s = this._dragStart;
-      this._bandEl?.setAttribute('x',      Math.min(s.x, pos.x));
-      this._bandEl?.setAttribute('y',      Math.min(s.y, pos.y));
-      this._bandEl?.setAttribute('width',  Math.abs(pos.x - s.x));
-      this._bandEl?.setAttribute('height', Math.abs(pos.y - s.y));
+      this._bandEnd = pos;
+      ctx.render();
     } else if (this._mode === 'scale') {
       this._doScale(pos, e.shiftKey);
       ctx.render();
@@ -295,7 +290,7 @@ export class SelectTool extends Tool {
       if (!effectiveVisible(shape)) continue;
       if (effectiveLocked(shape)) continue;
       const ot = ctx.getObjectType(shape.type);
-      const bb = ot?.getBBox(shape, ctx.getElement(shape.id));
+      const bb = ot?.getBBox(shape);
       if (!bb) continue;
       if (bb.x >= x0 && bb.x + bb.width  <= x1 &&
           bb.y >= y0 && bb.y + bb.height <= y1) {
@@ -411,7 +406,7 @@ export class SelectTool extends Tool {
 
   _shapeIdAt(screenX, screenY) {
     const ctx  = this._ctx;
-    const hit  = hitTest(screenX, screenY, ctx.getObjectType, ctx.getElement);
+    const hit  = hitTest(screenX, screenY, ctx.getObjectType);
     if (!hit || hit.isHandle || !hit.shape) return null;
     if (effectiveLocked(hit.shape)) return null;
     return hit.shape.id;
@@ -424,17 +419,53 @@ export class SelectTool extends Tool {
       const shape = findItem(id);
       if (!shape) continue;
       const ot = ctx.getObjectType(shape.type);
-      const bb = ot?.getBBox(shape, ctx.getElement(id));
+      const bb = ot?.getBBox(shape);
       if (bb) bbs.push(bb);
     }
     return unionBBoxes(bbs);
+  }
+
+  _drawBand(ckCanvas) {
+    if (!this._bandStart || !this._bandEnd) return;
+    const CK     = getCK();
+    const s      = this._bandStart;
+    const e      = this._bandEnd;
+    const x      = Math.min(s.x, e.x);
+    const y      = Math.min(s.y, e.y);
+    const w      = Math.abs(e.x - s.x);
+    const h      = Math.abs(e.y - s.y);
+    const z      = this._ctx.state.viewport.zoom;
+    const accent = _css('--theme-accent')    || '#4a9eff';
+    const sel    = _css('--theme-selection') || 'rgba(74,158,255,0.22)';
+    ckCanvas.save();
+    applyTransform(ckCanvas);
+    const rect = CK.XYWHRect(x, y, w, h);
+
+    const fillPaint = new CK.Paint();
+    fillPaint.setStyle(CK.PaintStyle.Fill);
+    fillPaint.setColor(CK.parseColorString(sel));
+    ckCanvas.drawRect(rect, fillPaint);
+    fillPaint.delete();
+
+    const dashPaint = new CK.Paint();
+    dashPaint.setStyle(CK.PaintStyle.Stroke);
+    dashPaint.setColor(CK.parseColorString(accent));
+    dashPaint.setStrokeWidth(1 / z);
+    const dashEffect = CK.PathEffect.MakeDash([4 / z, 3 / z]);
+    dashPaint.setPathEffect(dashEffect);
+    ckCanvas.drawRect(rect, dashPaint);
+    dashEffect.delete();
+    dashPaint.delete();
+
+    ckCanvas.restore();
   }
 
   _cleanup() {
     if (this._bandLayer) {
       this._ctx?.overlay.releaseLayer('select-band');
       this._bandLayer = null;
-      this._bandEl    = null;
+      this._bandStart = null;
+      this._bandEnd   = null;
     }
     this._snapshots.clear();
     this._bboxSnap    = null;
@@ -449,6 +480,10 @@ export class SelectTool extends Tool {
 }
 
 // ── Module-level helpers ─────────────────────────────────────────────────────
+
+function _css(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
 
 function _cloneShape(shape) {
   return {

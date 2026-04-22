@@ -2,8 +2,6 @@ import { ObjectType } from './base.js';
 import { nextId } from '../core/state.js';
 import { unionBBoxes } from '../geometry/bbox.js';
 
-const NS = 'http://www.w3.org/2000/svg';
-
 export class GroupObjectType extends ObjectType {
   get id()    { return 'group'; }
   get label() { return 'Group'; }
@@ -20,29 +18,10 @@ export class GroupObjectType extends ObjectType {
 
   draw() { /* renderer handles group recursion directly */ }
 
-  makeElement(shape) {
-    const el = document.createElementNS(NS, 'g');
-    this.syncElement(el, shape, { mode: 'normal', zoom: 1 });
-    return el;
-  }
+  getBBox(_shape) { return null; }
 
-  syncElement(el, shape, _viewState) {
-    el.removeAttribute('transform');
-    // Child elements are managed by the renderer — group itself has no presentation attrs
-  }
-
-  getBBox(shape, el) {
-    if (el) {
-      try {
-        const b = el.getBBox();
-        if (b.width > 0 || b.height > 0) return b;
-      } catch (_) {}
-    }
-    return null;
-  }
-
-  hitPart(shape, docX, docY, zoom, el) {
-    const bb = this.getBBox(shape, el);
+  hitPart(shape, docX, docY, zoom) {
+    const bb = this.getBBox(shape);
     if (!bb) return null;
     const tol = 4 / zoom;
     if (docX >= bb.x - tol && docX <= bb.x + bb.width  + tol &&

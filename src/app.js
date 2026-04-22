@@ -68,18 +68,21 @@ export function applyTheme(themeName) {
   // Use a theme-specific icon path only when that theme ships its own icons.
   // CSS-only themes (light, etc.) have no icon overrides and must fall back to default.
   const THEMES_WITH_ICONS = new Set([]); // add theme names here when they ship custom icon sets
-  const iconPath = THEMES_WITH_ICONS.has(themeName) ? `assets/themes/${themeName}` : 'assets/themes/default';
-  setIconTheme(iconPath);
+  const themeSuffix = THEMES_WITH_ICONS.has(themeName) ? themeName : 'default';
+  // Absolute URL so CSS var() url() values resolve correctly regardless of which
+  // stylesheet consumes the var (browsers resolve url() in vars relative to the sheet).
+  const iconBase = new URL(`../assets/themes/${themeSuffix}`, import.meta.url).href;
+  setIconTheme(iconBase);
 
   // Push cursor custom properties so canvas.less cursor rules resolve correctly
   const cursors = [
-    ['--cursor-pen',      `url('${iconPath}/icons/cursors/cursor-pen.svg') 2 2, crosshair`],
-    ['--cursor-pen-close',`url('${iconPath}/icons/cursors/cursor-pen-close.svg') 2 2, crosshair`],
-    ['--cursor-text',     `url('${iconPath}/icons/cursors/cursor-text.svg') 12 12, text`],
-    ['--cursor-grab',     `url('${iconPath}/icons/cursors/cursor-grab.svg') 8 8, grab`],
-    ['--cursor-grabbing', `url('${iconPath}/icons/cursors/cursor-grabbing.svg') 8 8, grabbing`],
-    ['--cursor-zoom-in',  `url('${iconPath}/icons/cursors/cursor-zoom-in.svg') 10 10, zoom-in`],
-    ['--cursor-zoom-out', `url('${iconPath}/icons/cursors/cursor-zoom-out.svg') 10 10, zoom-out`],
+    ['--cursor-pen',      `url('${iconBase}/icons/cursors/cursor-pen.svg') 2 2, crosshair`],
+    ['--cursor-pen-close',`url('${iconBase}/icons/cursors/cursor-pen-close.svg') 2 2, crosshair`],
+    ['--cursor-text',     `url('${iconBase}/icons/cursors/cursor-text.svg') 12 12, text`],
+    ['--cursor-grab',     `url('${iconBase}/icons/cursors/cursor-grab.svg') 8 8, grab`],
+    ['--cursor-grabbing', `url('${iconBase}/icons/cursors/cursor-grabbing.svg') 8 8, grabbing`],
+    ['--cursor-zoom-in',  `url('${iconBase}/icons/cursors/cursor-zoom-in.svg') 10 10, zoom-in`],
+    ['--cursor-zoom-out', `url('${iconBase}/icons/cursors/cursor-zoom-out.svg') 10 10, zoom-out`],
   ];
   for (const [prop, val] of cursors) {
     document.documentElement.style.setProperty(prop, val);

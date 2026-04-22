@@ -16,7 +16,7 @@ export class WireframeMode extends Mode {
     };
   }
 
-  afterRender({ state, getObjectType, getElement }) {
+  afterRender({ state, getObjectType }) {
     // Wireframe node dots are rendered into the overlay by the renderer
     // when mode === 'wireframe'. The renderer calls this after the main pass.
     const overlayEl = document.getElementById('overlay');

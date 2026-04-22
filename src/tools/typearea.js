@@ -1,6 +1,7 @@
 import { Tool } from './base.js';
 import { startEditing, isEditing } from '../textedit.js';
-import { rectToPathD } from '../geometry/path-utils.js';
+import { applyTransform } from '../viewport.js';
+import { getCK } from '../render/renderer.js';
 
 export class TypeAreaTool extends Tool {
   get id()       { return 'type-area'; }
@@ -15,19 +16,15 @@ export class TypeAreaTool extends Tool {
     if (e.button !== 0 || isEditing()) return;
     this._drawing = true;
     this._start   = this._ctx.screenToDoc(e.clientX, e.clientY);
+    this._geom    = null;
     this._layer   = this._ctx.overlay.acquireLayer('typearea-preview');
-    this._preview = this._layer.borrow('path');
-    this._preview.setAttribute('fill',         'none');
-    this._preview.setAttribute('stroke',       'var(--theme-accent, #4a9eff)');
-    this._preview.setAttribute('stroke-width', 1);
-    this._preview.setAttribute('vector-effect', 'non-scaling-stroke');
-    this._preview.style.pointerEvents = 'none';
+    this._layer.addCall(ctx => this._drawPreview(ctx));
   }
 
   onMouseMove(e) {
     if (!this._drawing) return;
-    const { x, y, w, h } = this._getRect(e);
-    this._preview.setAttribute('d', rectToPathD({ x, y, width: w, height: h }));
+    this._geom = this._getRect(e);
+    this._ctx.render();
   }
 
   onMouseUp(e) {
@@ -64,6 +61,26 @@ export class TypeAreaTool extends Tool {
 
   onKeyDown(e) { if (e.key === 'Escape') this._cancel(); }
 
+  _drawPreview(ckCanvas) {
+    const g = this._geom;
+    if (!g || g.w < 1 || g.h < 1) return;
+    const CK     = getCK();
+    const z      = this._ctx.state.viewport.zoom;
+    const accent = _css('--theme-accent') || '#4a9eff';
+    ckCanvas.save();
+    applyTransform(ckCanvas);
+    const paint = new CK.Paint();
+    paint.setStyle(CK.PaintStyle.Stroke);
+    paint.setColor(CK.parseColorString(accent));
+    paint.setStrokeWidth(1 / z);
+    const dashEffect = CK.PathEffect.MakeDash([4 / z, 3 / z]);
+    paint.setPathEffect(dashEffect);
+    ckCanvas.drawRect(CK.XYWHRect(g.x, g.y, g.w, g.h), paint);
+    dashEffect.delete();
+    paint.delete();
+    ckCanvas.restore();
+  }
+
   _getRect(e) {
     const pos = this._ctx.screenToDoc(e.clientX, e.clientY);
     return {
@@ -77,7 +94,11 @@ export class TypeAreaTool extends Tool {
   _cancel() {
     this._drawing = false;
     this._start   = null;
+    this._geom    = null;
     if (this._layer) { this._ctx?.overlay.releaseLayer('typearea-preview'); this._layer = null; }
-    this._preview = null;
   }
+}
+
+function _css(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }

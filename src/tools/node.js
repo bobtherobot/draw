@@ -4,6 +4,8 @@
 import { Tool } from './base.js';
 import { buildPenPathD, parsePenAnchors } from '../geometry/pen-path.js';
 import { findItem } from '../core/state.js';
+import { applyTransform, getCanvasRect } from '../viewport.js';
+import { getCK } from '../render/renderer.js';
 
 const HIT_R = 6; // screen-px hit radius
 
@@ -19,21 +21,20 @@ export class NodeTool extends Tool {
   }
 
   activate() {
-    this._mode          = 'idle';  // 'idle' | 'drag-anchor' | 'drag-handle' | 'marquee'
+    this._mode          = 'idle';
     this._editingIds    = new Set();
-    this._anchorsMap    = new Map(); // shapeId → anchors[]
-    this._closedMap     = new Map(); // shapeId → boolean
-    this._selMap        = new Map(); // shapeId → Set<anchorIdx>
+    this._anchorsMap    = new Map();
+    this._closedMap     = new Map();
+    this._selMap        = new Map();
     this._dragStart     = null;
-    this._dragAnchor    = null;  // { shapeId, anchorIdx }
-    this._dragHandle    = null;  // { shapeId, anchorIdx, side: 'in'|'out' }
+    this._dragAnchor    = null;
+    this._dragHandle    = null;
     this._preDs         = new Map();
     this._marqueeStart  = null;
 
     this._ensureLayer();
     this._redraw();
 
-    // Start editing selected path shapes
     for (const id of this._ctx.state.selection) {
       this._beginEditing(id);
     }
@@ -55,11 +56,9 @@ export class NodeTool extends Tool {
     if (e.button !== 0) return;
     const ctx  = this._ctx;
     const pos  = ctx.screenToDoc(e.clientX, e.clientY);
-    const z    = ctx.state.viewport.zoom;
 
     this._dragStart = pos;
 
-    // Hit-test handle first, then anchor
     const hh = this._hitHandle(e.clientX, e.clientY);
     if (hh) {
       this._mode       = 'drag-handle';
@@ -72,12 +71,11 @@ export class NodeTool extends Tool {
     if (ha) {
       const { shapeId, anchorIdx } = ha;
       if (!e.shiftKey) {
-        // Deselect other anchors in other shapes
         for (const [id, sel] of this._selMap) {
           if (id !== shapeId) sel.clear();
         }
         if (!this._selMap.has(shapeId)) this._selMap.set(shapeId, new Set());
-        if (!e.shiftKey && !this._selMap.get(shapeId).has(anchorIdx)) {
+        if (!this._selMap.get(shapeId).has(anchorIdx)) {
           this._selMap.get(shapeId).clear();
         }
         this._selMap.get(shapeId).add(anchorIdx);
@@ -92,7 +90,6 @@ export class NodeTool extends Tool {
       return;
     }
 
-    // Clicked empty space — start marquee or deselect
     if (!e.shiftKey) {
       for (const sel of this._selMap.values()) sel.clear();
     }
@@ -130,7 +127,6 @@ export class NodeTool extends Tool {
       const a = anchors[anchorIdx];
       if (side === 'out') {
         a.hOut = { x: pos.x, y: pos.y };
-        // Mirror for smooth: if hIn exists, mirror hOut → hIn
         if (a.hIn) a.hIn = { x: a.x - (pos.x - a.x), y: a.y - (pos.y - a.y) };
       } else {
         a.hIn = { x: pos.x, y: pos.y };
@@ -147,13 +143,12 @@ export class NodeTool extends Tool {
 
   onMouseUp(e) {
     if (this._mode === 'drag-anchor' || this._mode === 'drag-handle') {
-      // Commit: record undo entry
       const preDs  = this._preDs;
       const postDs = this._snapshotDs();
       const ctx    = this._ctx;
       ctx.execute({
-        do()   { for (const [id, d] of postDs) { const s = findItem(id); if (s) s.attrs.d = d; const el = ctx.getElement(id); if (el) el.setAttribute('d', d); } ctx.render(); },
-        undo() { for (const [id, d] of preDs)  { const s = findItem(id); if (s) s.attrs.d = d; const el = ctx.getElement(id); if (el) el.setAttribute('d', d); } ctx.render(); },
+        do()   { for (const [id, d] of postDs) { const s = findItem(id); if (s) s.attrs.d = d; } ctx.render(); },
+        undo() { for (const [id, d] of preDs)  { const s = findItem(id); if (s) s.attrs.d = d; } ctx.render(); },
       });
     }
     this._mode         = 'idle';
@@ -193,8 +188,6 @@ export class NodeTool extends Tool {
     const d       = buildPenPathD(anchors, closed);
     const found = findItem(shapeId);
     if (found) found.attrs.d = d;
-    const el = this._ctx.getElement(shapeId);
-    if (el) el.setAttribute('d', d);
   }
 
   _snapshotDs() {
@@ -206,14 +199,115 @@ export class NodeTool extends Tool {
     return snap;
   }
 
+  _redraw() {
+    this._ensureLayer();
+    this._layer.clear();
+    if (this._anchorsMap.size > 0 || (this._mode === 'marquee' && this._marqueeStart)) {
+      this._layer.addCall(ctx => this._drawOverlay(ctx));
+    }
+    this._ctx.render();
+  }
+
+  _drawOverlay(ckCanvas) {
+    const CK     = getCK();
+    const z      = this._ctx.state.viewport.zoom;
+    const sw     = 1 / z;
+    const hs     = 4 / z;
+    const hr     = 3 / z;
+    const accent = _css('--theme-accent')    || '#4a9eff';
+    const bg     = _css('--theme-bg-raised') || '#ffffff';
+    const dim    = _css('--theme-fg-dim')    || '#888888';
+
+    ckCanvas.save();
+    applyTransform(ckCanvas);
+
+    const linePaint = new CK.Paint();
+    linePaint.setStyle(CK.PaintStyle.Stroke);
+    linePaint.setColor(CK.parseColorString(dim));
+    linePaint.setStrokeWidth(sw);
+    linePaint.setAntiAlias(false);
+
+    const dotPaint = new CK.Paint();
+    dotPaint.setStyle(CK.PaintStyle.Fill);
+    dotPaint.setColor(CK.parseColorString(accent));
+    dotPaint.setAntiAlias(true);
+
+    const anchorFill   = new CK.Paint();
+    anchorFill.setStyle(CK.PaintStyle.Fill);
+    anchorFill.setAntiAlias(false);
+
+    const anchorStroke = new CK.Paint();
+    anchorStroke.setStyle(CK.PaintStyle.Stroke);
+    anchorStroke.setColor(CK.parseColorString(accent));
+    anchorStroke.setStrokeWidth(1.5 / z);
+    anchorStroke.setAntiAlias(true);
+
+    for (const [id, anchors] of this._anchorsMap) {
+      const sel = this._selMap.get(id) ?? new Set();
+      for (let i = 0; i < anchors.length; i++) {
+        const a     = anchors[i];
+        const isSel = sel.has(i);
+
+        if (isSel) {
+          for (const h of [a.hIn, a.hOut]) {
+            if (!h) continue;
+            const lp = CK.Path.MakeFromSVGString(`M ${a.x} ${a.y} L ${h.x} ${h.y}`);
+            if (lp) { ckCanvas.drawPath(lp, linePaint); lp.delete(); }
+            ckCanvas.drawCircle(h.x, h.y, hr, dotPaint);
+          }
+        }
+
+        anchorFill.setColor(CK.parseColorString(isSel ? accent : bg));
+        const r = CK.XYWHRect(a.x - hs, a.y - hs, hs * 2, hs * 2);
+        ckCanvas.drawRect(r, anchorFill);
+        ckCanvas.drawRect(r, anchorStroke);
+      }
+    }
+
+    // Marquee rect
+    if (this._mode === 'marquee' && this._marqueeStart && this._dragStart) {
+      const s   = this._marqueeStart;
+      const e   = this._dragStart;
+      const x   = Math.min(s.x, e.x);
+      const y   = Math.min(s.y, e.y);
+      const w   = Math.abs(e.x - s.x);
+      const h   = Math.abs(e.y - s.y);
+      const sel = _css('--theme-selection') || 'rgba(74,158,255,0.22)';
+      const rect = CK.XYWHRect(x, y, w, h);
+
+      const fillPaint = new CK.Paint();
+      fillPaint.setStyle(CK.PaintStyle.Fill);
+      fillPaint.setColor(CK.parseColorString(sel));
+      ckCanvas.drawRect(rect, fillPaint);
+      fillPaint.delete();
+
+      const dashPaint = new CK.Paint();
+      dashPaint.setStyle(CK.PaintStyle.Stroke);
+      dashPaint.setColor(CK.parseColorString(accent));
+      dashPaint.setStrokeWidth(sw);
+      const dashEffect = CK.PathEffect.MakeDash([4 / z, 3 / z]);
+      dashPaint.setPathEffect(dashEffect);
+      ckCanvas.drawRect(rect, dashPaint);
+      dashEffect.delete();
+      dashPaint.delete();
+    }
+
+    linePaint.delete();
+    dotPaint.delete();
+    anchorFill.delete();
+    anchorStroke.delete();
+
+    ckCanvas.restore();
+  }
+
   _hitAnchor(screenX, screenY) {
-    const z    = this._ctx.state.viewport.zoom;
-    const rect = document.getElementById('canvas').getBoundingClientRect();
+    const z = this._ctx.state.viewport.zoom;
+    const { left, top } = getCanvasRect();
     for (const [id, anchors] of this._anchorsMap) {
       for (let i = 0; i < anchors.length; i++) {
         const a  = anchors[i];
-        const sx = (a.x - this._ctx.state.viewport.x) * z + rect.left;
-        const sy = (a.y - this._ctx.state.viewport.y) * z + rect.top;
+        const sx = (a.x - this._ctx.state.viewport.x) * z + left;
+        const sy = (a.y - this._ctx.state.viewport.y) * z + top;
         if (Math.hypot(screenX - sx, screenY - sy) < HIT_R) {
           return { shapeId: id, anchorIdx: i };
         }
@@ -223,8 +317,8 @@ export class NodeTool extends Tool {
   }
 
   _hitHandle(screenX, screenY) {
-    const z    = this._ctx.state.viewport.zoom;
-    const rect = document.getElementById('canvas').getBoundingClientRect();
+    const z = this._ctx.state.viewport.zoom;
+    const { left, top } = getCanvasRect();
     for (const [id, anchors] of this._anchorsMap) {
       const sel = this._selMap.get(id) ?? new Set();
       for (let i = 0; i < anchors.length; i++) {
@@ -232,8 +326,8 @@ export class NodeTool extends Tool {
         const a = anchors[i];
         for (const [h, side] of [[a.hIn, 'in'], [a.hOut, 'out']]) {
           if (!h) continue;
-          const sx = (h.x - this._ctx.state.viewport.x) * z + rect.left;
-          const sy = (h.y - this._ctx.state.viewport.y) * z + rect.top;
+          const sx = (h.x - this._ctx.state.viewport.x) * z + left;
+          const sy = (h.y - this._ctx.state.viewport.y) * z + top;
           if (Math.hypot(screenX - sx, screenY - sy) < HIT_R) {
             return { shapeId: id, anchorIdx: i, side };
           }
@@ -258,62 +352,8 @@ export class NodeTool extends Tool {
       }
     }
   }
-
-  _redraw() {
-    this._ensureLayer();
-    const layer = this._layer;
-    layer.clear();
-
-    const z  = this._ctx.state.viewport.zoom;
-    const sw = 1 / z;
-    const hs = 4 / z;
-    const hr = 3 / z;
-
-    for (const [id, anchors] of this._anchorsMap) {
-      const sel = this._selMap.get(id) ?? new Set();
-      for (let i = 0; i < anchors.length; i++) {
-        const a     = anchors[i];
-        const isSel = sel.has(i);
-
-        if (isSel) {
-          for (const [h] of [[a.hIn], [a.hOut]]) {
-            if (!h) continue;
-            const line = layer.borrow('line');
-            line.setAttribute('class', 'pen-handle-line');
-            line.setAttribute('x1', a.x); line.setAttribute('y1', a.y);
-            line.setAttribute('x2', h.x); line.setAttribute('y2', h.y);
-            line.setAttribute('stroke-width', sw);
-            const dot = layer.borrow('circle');
-            dot.setAttribute('class', 'pen-handle-dot');
-            dot.setAttribute('cx', h.x); dot.setAttribute('cy', h.y);
-            dot.setAttribute('r', hr);
-          }
-        }
-
-        const rect = layer.borrow('rect');
-        rect.setAttribute('class', 'pen-anchor');
-        rect.setAttribute('x',      a.x - hs);
-        rect.setAttribute('y',      a.y - hs);
-        rect.setAttribute('width',  hs * 2);
-        rect.setAttribute('height', hs * 2);
-        rect.setAttribute('stroke-width', sw);
-        if (isSel) rect.setAttribute('fill', 'var(--theme-accent, #4a9eff)');
-        else       rect.setAttribute('fill', 'var(--theme-bg-raised, #fff)');
-      }
-    }
-
-    // Marquee rect
-    if (this._mode === 'marquee' && this._marqueeStart && this._dragStart) {
-      const s = this._marqueeStart;
-      const e = this._dragStart;
-      const m = layer.borrow('rect');
-      m.setAttribute('class', 'rubber-band');
-      m.setAttribute('x',      Math.min(s.x, e.x));
-      m.setAttribute('y',      Math.min(s.y, e.y));
-      m.setAttribute('width',  Math.abs(e.x - s.x));
-      m.setAttribute('height', Math.abs(e.y - s.y));
-      m.setAttribute('vector-effect', 'non-scaling-stroke');
-    }
-  }
 }
 
+function _css(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}

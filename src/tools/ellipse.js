@@ -1,7 +1,7 @@
 import { Tool } from './base.js';
 import { ellipseToPathD } from '../geometry/path-utils.js';
-
-const NS = 'http://www.w3.org/2000/svg';
+import { applyTransform } from '../viewport.js';
+import { getCK } from '../render/renderer.js';
 
 export class EllipseTool extends Tool {
   get id()       { return 'ellipse'; }
@@ -16,20 +16,16 @@ export class EllipseTool extends Tool {
     if (e.button !== 0) return;
     this._drawing = true;
     this._start   = this._ctx.screenToDoc(e.clientX, e.clientY);
+    this._geom    = null;
+    this._style   = { ...this._ctx.state.currentStyle };
     this._layer   = this._ctx.overlay.acquireLayer('ellipse-preview');
-    this._preview = this._layer.borrow('path');
-    const s = this._ctx.state.currentStyle;
-    this._preview.setAttribute('fill',         s.fill        ?? 'none');
-    this._preview.setAttribute('stroke',       s.stroke      ?? '#000');
-    this._preview.setAttribute('stroke-width', s.strokeWidth ?? 1);
-    this._preview.style.pointerEvents = 'none';
-    this._preview.setAttribute('vector-effect', 'non-scaling-stroke');
+    this._layer.addCall(ctx => this._drawPreview(ctx));
   }
 
   onMouseMove(e) {
     if (!this._drawing) return;
-    const { cx, cy, rx, ry } = this._getEllipse(e);
-    this._preview.setAttribute('d', ellipseToPathD({ cx, cy, rx, ry }));
+    this._geom = this._getEllipse(e);
+    this._ctx.render();
   }
 
   onMouseUp(e) {
@@ -54,6 +50,44 @@ export class EllipseTool extends Tool {
 
   onKeyDown(e) { if (e.key === 'Escape') this._cancel(); }
 
+  _drawPreview(ckCanvas) {
+    const g = this._geom;
+    if (!g || g.rx < 0.5 || g.ry < 0.5) return;
+    const CK = getCK();
+    const s  = this._style;
+    const z  = this._ctx.state.viewport.zoom;
+    const { cx, cy, rx, ry } = g;
+    const k  = 0.5522847498;
+    ckCanvas.save();
+    applyTransform(ckCanvas);
+    const d = `M ${cx-rx} ${cy} `
+            + `C ${cx-rx} ${cy-ry*k} ${cx-rx*k} ${cy-ry} ${cx} ${cy-ry} `
+            + `C ${cx+rx*k} ${cy-ry} ${cx+rx} ${cy-ry*k} ${cx+rx} ${cy} `
+            + `C ${cx+rx} ${cy+ry*k} ${cx+rx*k} ${cy+ry} ${cx} ${cy+ry} `
+            + `C ${cx-rx*k} ${cy+ry} ${cx-rx} ${cy+ry*k} ${cx-rx} ${cy} Z`;
+    const path = CK.Path.MakeFromSVGString(d);
+    if (!path) { ckCanvas.restore(); return; }
+    if (s.fill && s.fill !== 'none') {
+      const p = new CK.Paint();
+      p.setStyle(CK.PaintStyle.Fill);
+      p.setColor(CK.parseColorString(s.fill));
+      p.setAntiAlias(true);
+      ckCanvas.drawPath(path, p);
+      p.delete();
+    }
+    if (s.stroke && s.stroke !== 'none') {
+      const p = new CK.Paint();
+      p.setStyle(CK.PaintStyle.Stroke);
+      p.setColor(CK.parseColorString(s.stroke));
+      p.setStrokeWidth((s.strokeWidth ?? 1) / z);
+      p.setAntiAlias(true);
+      ckCanvas.drawPath(path, p);
+      p.delete();
+    }
+    path.delete();
+    ckCanvas.restore();
+  }
+
   _getEllipse(e) {
     const pos = this._ctx.screenToDoc(e.clientX, e.clientY);
     let   rx  = Math.abs(pos.x - this._start.x) / 2;
@@ -69,7 +103,8 @@ export class EllipseTool extends Tool {
   _cancel() {
     this._drawing = false;
     this._start   = null;
+    this._geom    = null;
+    this._style   = null;
     if (this._layer) { this._ctx?.overlay.releaseLayer('ellipse-preview'); this._layer = null; }
-    this._preview = null;
   }
 }

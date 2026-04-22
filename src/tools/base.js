@@ -11,7 +11,6 @@
  * @property {import('../core/history.js').execute}   execute
  * @property {Function}  render        - () => void
  * @property {Function}  screenToDoc   - (sx, sy) => {x, y}
- * @property {Function}  getElement    - (shapeId) => SVGElement|undefined
  * @property {Function}  getObjectType - (typeId) => ObjectType|null
  * @property {Function}  setActiveTool - (toolId) => void
  * @property {Function}  emit          - (event, data) => void

@@ -50,13 +50,15 @@ export function docToScreen(dx, dy) {
 }
 
 /**
- * Apply the current viewport transform to a canvas 2D context.
- * Call at the start of each render frame (after clearRect, before drawing).
- * @param {CanvasRenderingContext2D} ctx
+ * Apply the current viewport transform to a CanvasKit canvas.
+ * Call at the start of each render frame (after clear, before drawing).
+ * Matrix maps doc coords → canvas pixel coords: x' = (docX - vx) * zoom
+ * @param {object} ckCanvas  CanvasKit Canvas
  */
-export function applyTransform(ctx) {
+export function applyTransform(ckCanvas) {
   const { x, y, zoom } = state.viewport;
-  ctx.setTransform(zoom, 0, 0, zoom, -x * zoom, -y * zoom);
+  // Row-major 3×3 matrix: [zoom, 0, -x*zoom, 0, zoom, -y*zoom, 0, 0, 1]
+  ckCanvas.concat([zoom, 0, -x * zoom, 0, zoom, -y * zoom, 0, 0, 1]);
 }
 
 /**

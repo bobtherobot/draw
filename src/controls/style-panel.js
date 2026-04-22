@@ -5,8 +5,7 @@
 import { state, findItem } from '../core/state.js';
 import { on, emit }   from '../core/events.js';
 import { execute }    from '../core/history.js';
-import { getObjectType } from '../core/registry.js';
-import { getElement, render } from '../render/renderer.js';
+import { render } from '../render/renderer.js';
 
 let _pickerSnapshot = null; // style snapshot at color-picker open
 
@@ -153,9 +152,6 @@ function _applyStyle(prop, value) {
     const shape = findItem(id);
     if (!shape) continue;
     shape.style[prop] = value;
-    const ot = getObjectType(shape.type);
-    const el = getElement(id);
-    if (ot && el) ot.syncElement(el, shape, { mode: state.activeMode, zoom: state.viewport.zoom });
   }
 }
 
@@ -173,9 +169,6 @@ function _restoreSnapshot(snap) {
     const shape = findItem(id);
     if (shape) {
       Object.assign(shape.style, style);
-      const ot = getObjectType(shape.type);
-      const el = getElement(id);
-      if (ot && el) ot.syncElement(el, shape, { mode: state.activeMode, zoom: state.viewport.zoom });
     }
   }
 }

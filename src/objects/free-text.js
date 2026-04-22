@@ -2,8 +2,6 @@ import { ObjectType } from './base.js';
 import { nextId } from '../core/state.js';
 import { rotatePoint } from '../geometry/path-utils.js';
 
-const NS = 'http://www.w3.org/2000/svg';
-
 // ── Canvas measurement ────────────────────────────────────────────────────────
 
 let _measureCtx = null;
@@ -42,7 +40,10 @@ export class FreeTextObjectType extends ObjectType {
     };
   }
 
-  draw(ctx, shape, _viewState) {
+  // CanvasKit draw is a no-op — text is rendered by the Canvas 2D layer in renderer.js
+  draw(_ckCanvas, _shape, _viewState) {}
+
+  drawCanvas2D(ctx, shape) {
     const x        = shape.attrs.x   ?? 0;
     const y        = shape.attrs.y   ?? 0;
     const fs       = shape._fontSize   ?? 14;
@@ -57,7 +58,6 @@ export class FreeTextObjectType extends ObjectType {
     const rotCy    = shape._rotCy     ?? (y + fs);
 
     ctx.save();
-
     if (rotation !== 0) {
       ctx.translate(rotCx, rotCy);
       ctx.rotate(rotation * Math.PI / 180);
@@ -68,94 +68,19 @@ export class FreeTextObjectType extends ObjectType {
       ctx.scale(scaleX, scaleY);
       ctx.translate(-x, -y);
     }
-
     ctx.font         = `${fs}px ${ff}`;
     ctx.fillStyle    = fill;
-    ctx.textAlign    = align === 'center' ? 'center' : align === 'right' ? 'right' : 'left';
+    ctx.textAlign    = align;
     ctx.textBaseline = 'alphabetic';
-
     const lines = (shape._text ?? '').split('\n');
     for (let i = 0; i < lines.length; i++) {
       ctx.fillText(lines[i] || '', x, y + fs + i * lh);
     }
-
     ctx.restore();
   }
 
-  makeElement(shape) {
-    const el = document.createElementNS(NS, 'text');
-    this.syncElement(el, shape, { mode: 'normal', zoom: 1 });
-    return el;
-  }
-
-  syncElement(el, shape, _viewState) {
-    const x  = shape.attrs.x ?? 0;
-    const y  = shape.attrs.y ?? 0;
-    const fs = shape._fontSize  ?? 14;
-    const ff = shape._fontFamily ?? 'sans-serif';
-    const lh = fs * 1.3;
-
-    el.setAttribute('fill',        shape.style.fill ?? '#000000');
-    el.setAttribute('font-size',   fs);
-    el.setAttribute('font-family', ff);
-    el.setAttribute('text-anchor', _anchorFor(shape._textAlign));
-    // x/y live on tspans, not the root text element
-    el.removeAttribute('x');
-    el.removeAttribute('y');
-
-    // Rotation and non-uniform scale are stored as shape properties and
-    // applied as an SVG transform — text coordinates can't be baked the
-    // way path coordinates can.
-    const scaleX   = shape._scaleX   ?? 1;
-    const scaleY   = shape._scaleY   ?? 1;
+  getBBox(shape) {
     const rotation = shape._rotation ?? 0;
-    const rotCx    = shape._rotCx    ?? x;
-    const rotCy    = shape._rotCy    ?? (y + fs);
-
-    if (rotation !== 0 || scaleX !== 1 || scaleY !== 1) {
-      let t = '';
-      if (rotation !== 0)
-        t += `rotate(${rotation},${rotCx},${rotCy}) `;
-      if (scaleX !== 1 || scaleY !== 1)
-        t += `translate(${x * (1 - scaleX)},${y * (1 - scaleY)}) scale(${scaleX},${scaleY})`;
-      el.setAttribute('transform', t.trim());
-    } else {
-      el.removeAttribute('transform');
-    }
-
-    // Reconcile tspans for multi-line text
-    const lines = (shape._text ?? '').split('\n');
-    while (el.children.length > lines.length) el.removeChild(el.lastChild);
-    lines.forEach((line, i) => {
-      let tspan = el.children[i];
-      if (!tspan) {
-        tspan = document.createElementNS(NS, 'tspan');
-        el.appendChild(tspan);
-      }
-      tspan.setAttribute('x', x);
-      if (i === 0) {
-        tspan.setAttribute('y', y + fs);
-        tspan.removeAttribute('dy');
-      } else {
-        tspan.setAttribute('dy', lh);
-        tspan.removeAttribute('y');
-      }
-      // Non-breaking space preserves empty lines in SVG rendering
-      tspan.textContent = line || ' ';
-    });
-  }
-
-  getBBox(shape, el) {
-    const rotation   = shape._rotation ?? 0;
-    const hasScale   = (shape._scaleX ?? 1) !== 1 || (shape._scaleY ?? 1) !== 1;
-    const hasTransform = hasScale || rotation !== 0;
-    if (el && !hasTransform) {
-      try {
-        const b = el.getBBox();
-        if (b.width > 0 || b.height > 0) return b;
-      } catch (_) {}
-    }
-    // Canvas measurement gives the pre-transform rect; rotation is applied below.
     const fs    = shape._fontSize   ?? 14;
     const ff    = shape._fontFamily ?? 'sans-serif';
     const lines = (shape._text ?? '').split('\n');
@@ -193,8 +118,8 @@ export class FreeTextObjectType extends ObjectType {
     };
   }
 
-  hitPart(shape, docX, docY, zoom, el) {
-    const bb = this.getBBox(shape, el);
+  hitPart(shape, docX, docY, zoom) {
+    const bb = this.getBBox(shape);
     if (!bb) return null;
     const tol = 4 / zoom;
     if (docX >= bb.x - tol && docX <= bb.x + bb.width  + tol &&
@@ -271,7 +196,7 @@ export class FreeTextObjectType extends ObjectType {
     const x        = Number(tspans[0]?.getAttribute('x') ?? el.getAttribute('x') ?? 0);
     const y        = firstY - fs;
     const text     = tspans.length > 0
-      ? tspans.map(t => t.textContent.replace(' ', '')).join('\n')
+      ? tspans.map(t => t.textContent.replace(' ', '')).join('\n')
       : (el.textContent ?? '');
     return {
       id:          nextId(this.id),

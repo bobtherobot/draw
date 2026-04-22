@@ -11,6 +11,8 @@
  */
 import { Tool } from './base.js';
 import { buildPenPathD } from '../geometry/pen-path.js';
+import { applyTransform, getCanvasRect } from '../viewport.js';
+import { getCK } from '../render/renderer.js';
 
 const CLOSE_RADIUS = 8; // screen px
 
@@ -97,7 +99,7 @@ export class PenTool extends Tool {
 
   onDblClick(_e) {
     if (!this._active) return;
-    if (this._anchors.length > 1) this._anchors.pop(); // second click added an anchor
+    if (this._anchors.length > 1) this._anchors.pop();
     this._finalize(false);
   }
 
@@ -117,15 +119,25 @@ export class PenTool extends Tool {
 
   _redraw() {
     this._ensureLayer();
-    const layer = this._layer;
-    layer.clear();
+    this._layer.clear();
+    if (this._active || this._anchors.length > 0) {
+      this._layer.addCall(ctx => this._drawOverlay(ctx));
+    }
+    this._ctx.render();
+  }
 
-    if (!this._active && this._anchors.length === 0) return;
+  _drawOverlay(ckCanvas) {
+    const CK     = getCK();
+    const z      = this._ctx.state.viewport.zoom;
+    const sw     = 1 / z;
+    const hs     = 4 / z;
+    const hr     = 3 / z;
+    const accent = _css('--theme-accent')    || '#4a9eff';
+    const bg     = _css('--theme-bg-raised') || '#ffffff';
+    const dim    = _css('--theme-fg-dim')    || '#888888';
 
-    const z  = this._ctx.state.viewport.zoom;
-    const sw = 1 / z;
-    const hs = 4 / z;
-    const hr = 3 / z;
+    ckCanvas.save();
+    applyTransform(ckCanvas);
 
     // Preview path (committed segments + rubber-band to cursor)
     let d = buildPenPathD(this._anchors, false);
@@ -136,47 +148,69 @@ export class PenTool extends Tool {
         d += this._rubberBand(this._anchors[this._anchors.length - 1], this._cursor);
       }
     }
-    const preview = layer.borrow('path');
-    preview.setAttribute('d',            d || 'M0 0');
-    preview.setAttribute('fill',         'none');
-    preview.setAttribute('stroke',       'var(--theme-accent, #4a9eff)');
-    preview.setAttribute('stroke-width', sw);
-    preview.setAttribute('vector-effect','non-scaling-stroke');
-    preview.style.pointerEvents = 'none';
+
+    if (d) {
+      const ckPath = CK.Path.MakeFromSVGString(d);
+      if (ckPath) {
+        const paint = new CK.Paint();
+        paint.setStyle(CK.PaintStyle.Stroke);
+        paint.setColor(CK.parseColorString(accent));
+        paint.setStrokeWidth(sw);
+        paint.setAntiAlias(true);
+        ckCanvas.drawPath(ckPath, paint);
+        ckPath.delete();
+        paint.delete();
+      }
+    }
 
     // Handles and anchors
+    const handleLinePaint = new CK.Paint();
+    handleLinePaint.setStyle(CK.PaintStyle.Stroke);
+    handleLinePaint.setColor(CK.parseColorString(dim));
+    handleLinePaint.setStrokeWidth(sw);
+    handleLinePaint.setAntiAlias(false);
+
+    const dotPaint = new CK.Paint();
+    dotPaint.setStyle(CK.PaintStyle.Fill);
+    dotPaint.setColor(CK.parseColorString(accent));
+    dotPaint.setAntiAlias(true);
+
+    const anchorFillPaint   = new CK.Paint();
+    const anchorStrokePaint = new CK.Paint();
+    anchorStrokePaint.setStyle(CK.PaintStyle.Stroke);
+    anchorStrokePaint.setColor(CK.parseColorString(accent));
+    anchorStrokePaint.setStrokeWidth(1.5 / z);
+    anchorStrokePaint.setAntiAlias(true);
+
     for (let i = 0; i < this._anchors.length; i++) {
-      const a      = this._anchors[i];
-      const isLast = i === this._anchors.length - 1;
+      const a = this._anchors[i];
 
       for (const h of [a.hIn, a.hOut]) {
         if (!h) continue;
-        const line = layer.borrow('line');
-        line.setAttribute('x1', a.x); line.setAttribute('y1', a.y);
-        line.setAttribute('x2', h.x); line.setAttribute('y2', h.y);
-        line.setAttribute('class', 'pen-handle-line');
-        line.setAttribute('stroke-width', sw);
-        const dot = layer.borrow('circle');
-        dot.setAttribute('cx', h.x); dot.setAttribute('cy', h.y);
-        dot.setAttribute('r', hr);
-        dot.setAttribute('class', 'pen-handle-dot');
-        dot.setAttribute('stroke-width', sw);
+        const linePath = CK.Path.MakeFromSVGString(`M ${a.x} ${a.y} L ${h.x} ${h.y}`);
+        if (linePath) { ckCanvas.drawPath(linePath, handleLinePaint); linePath.delete(); }
+        ckCanvas.drawCircle(h.x, h.y, hr, dotPaint);
       }
 
-      const anchor = layer.borrow('rect');
-      anchor.setAttribute('x',      a.x - hs);
-      anchor.setAttribute('y',      a.y - hs);
-      anchor.setAttribute('width',  hs * 2);
-      anchor.setAttribute('height', hs * 2);
-      anchor.setAttribute('class',  'pen-anchor');
-      anchor.setAttribute('stroke-width', sw);
-      if (i === 0 && this._closing) anchor.setAttribute('fill', 'var(--theme-accent, #4a9eff)');
+      anchorFillPaint.setStyle(CK.PaintStyle.Fill);
+      anchorFillPaint.setAntiAlias(false);
+      anchorFillPaint.setColor(CK.parseColorString((i === 0 && this._closing) ? accent : bg));
+      const r = CK.XYWHRect(a.x - hs, a.y - hs, hs * 2, hs * 2);
+      ckCanvas.drawRect(r, anchorFillPaint);
+      ckCanvas.drawRect(r, anchorStrokePaint);
     }
+
+    handleLinePaint.delete();
+    dotPaint.delete();
+    anchorFillPaint.delete();
+    anchorStrokePaint.delete();
+
+    ckCanvas.restore();
   }
 
   _rubberBand(prev, cursor) {
     const h1 = prev.hOut || prev;
-    const r  = (n) => Math.round(n * 100) / 100;
+    const r  = n => Math.round(n * 100) / 100;
     return ` C ${r(h1.x)} ${r(h1.y)} ${r(cursor.x)} ${r(cursor.y)} ${r(cursor.x)} ${r(cursor.y)}`;
   }
 
@@ -186,7 +220,7 @@ export class PenTool extends Tool {
     const a0   = this._anchors[0];
     const h1 = last.hOut;
     const h2 = a0.hIn;
-    const r  = (n) => Math.round(n * 100) / 100;
+    const r  = n => Math.round(n * 100) / 100;
     if (!h1 && !h2) return ` L ${r(a0.x)} ${r(a0.y)}`;
     return ` C ${r((h1 || last).x)} ${r((h1 || last).y)} ${r((h2 || a0).x)} ${r((h2 || a0).y)} ${r(a0.x)} ${r(a0.y)}`;
   }
@@ -224,9 +258,13 @@ export class PenTool extends Tool {
     if (this._anchors.length === 0) return false;
     const a0   = this._anchors[0];
     const { x: vx, y: vy, zoom } = this._ctx.state.viewport;
-    const rect = document.getElementById('canvas').getBoundingClientRect();
-    const sx   = (a0.x - vx) * zoom + rect.left;
-    const sy   = (a0.y - vy) * zoom + rect.top;
+    const { left, top } = getCanvasRect();
+    const sx = (a0.x - vx) * zoom + left;
+    const sy = (a0.y - vy) * zoom + top;
     return Math.hypot(screenX - sx, screenY - sy) < CLOSE_RADIUS;
   }
+}
+
+function _css(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }

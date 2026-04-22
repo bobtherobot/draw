@@ -26,7 +26,12 @@
       "Bash(node --check /mnt/blue/drives/projects/draw/src/render/renderer.js)",
       "Bash(node --check /mnt/blue/drives/projects/draw/src/app.js)",
       "Bash(node *)",
-      "Bash(git ls-tree *)"
+      "Bash(git ls-tree *)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:www.npmjs.com)",
+      "Bash(npm view *)",
+      "Bash(python3 *)"
     ]
   }
 }

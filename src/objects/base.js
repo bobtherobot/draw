@@ -29,48 +29,29 @@ export class ObjectType {
   }
 
   /**
-   * Draw this shape onto a Canvas 2D context. Called every render frame.
-   * @param {CanvasRenderingContext2D} ctx
+   * Draw this shape onto a CanvasKit canvas. Called every render frame.
+   * @param {object} ckCanvas  CanvasKit canvas
    * @param {object} shape
    * @param {{mode:string, zoom:number}} viewState
    */
-  draw(ctx, shape, viewState) { throw new Error(`${this.constructor.name}: draw not implemented`); }
-
-  /**
-   * Create the SVG element for first render (used by SVG export path).
-   * @param {object} shape
-   * @param {string} NS  - SVG namespace URI
-   * @returns {SVGElement}
-   */
-  makeElement(shape, NS) { throw new Error(`${this.constructor.name}: makeElement not implemented`); }
-
-  /**
-   * Sync an existing SVG element to current shape data (used by SVG export path).
-   * @param {SVGElement} el
-   * @param {object}     shape
-   * @param {{mode:string, zoom:number}} viewState
-   */
-  syncElement(el, shape, viewState) { throw new Error(`${this.constructor.name}: syncElement not implemented`); }
+  draw(ckCanvas, shape, viewState) { throw new Error(`${this.constructor.name}: draw not implemented`); }
 
   /**
    * Return the axis-aligned bounding box in document coords.
-   * Must work without a live DOM element.
-   * @param {object}      shape
-   * @param {SVGElement}  [el]
+   * @param {object} shape
    * @returns {{x:number, y:number, width:number, height:number} | null}
    */
-  getBBox(shape, el) { return null; }
+  getBBox(shape) { return null; }
 
   /**
    * Hit-test a document-space point against this shape's parts.
-   * @param {object}    shape
-   * @param {number}    docX
-   * @param {number}    docY
-   * @param {number}    zoom
-   * @param {SVGElement}[el]
+   * @param {object} shape
+   * @param {number} docX
+   * @param {number} docY
+   * @param {number} zoom
    * @returns {{part: string, detail?: *} | null}
    */
-  hitPart(shape, docX, docY, zoom, el) { return null; }
+  hitPart(shape, docX, docY, zoom) { return null; }
 
   /**
    * List of interactive parts for overlay rendering.

@@ -1,8 +1,6 @@
 import { ObjectType } from './base.js';
 import { nextId } from '../core/state.js';
 
-const NS = 'http://www.w3.org/2000/svg';
-
 // Cache for wrapText results — keyed by "text|fontSize|fontFamily|boxWidth"
 const _wrapCache = new Map();
 let   _measureCtx = null;
@@ -60,7 +58,10 @@ export class TextBlockObjectType extends ObjectType {
     };
   }
 
-  draw(ctx, shape, _viewState) {
+  // CanvasKit draw is a no-op — text is rendered by the Canvas 2D layer in renderer.js
+  draw(_ckCanvas, _shape, _viewState) {}
+
+  drawCanvas2D(ctx, shape) {
     const x    = shape.attrs.x   ?? 0;
     const y    = shape.attrs.y   ?? 0;
     const fs   = shape._fontSize   ?? 14;
@@ -77,59 +78,13 @@ export class TextBlockObjectType extends ObjectType {
     ctx.beginPath();
     ctx.rect(x, y, bw, bh);
     ctx.clip();
-
     ctx.font         = `${fs}px ${ff}`;
     ctx.fillStyle    = fill;
-    ctx.textAlign    = 'left';
     ctx.textBaseline = 'alphabetic';
-
     for (let i = 0; i < Math.min(lines.length, maxLines); i++) {
       ctx.fillText(lines[i], x, y + fs + i * lh);
     }
-
     ctx.restore();
-  }
-
-  makeElement(shape) {
-    const el = document.createElementNS(NS, 'text');
-    this.syncElement(el, shape, { mode: 'normal', zoom: 1 });
-    return el;
-  }
-
-  syncElement(el, shape, _viewState) {
-    const fs  = shape._fontSize   ?? 14;
-    const ff  = shape._fontFamily ?? 'sans-serif';
-    const bw  = shape._boxWidth   ?? 200;
-    const bh  = shape._boxHeight  ?? 100;
-    const lh  = fs * 1.3;
-
-    el.setAttribute('x',           shape.attrs.x);
-    el.setAttribute('y',           shape.attrs.y);
-    el.setAttribute('fill',        shape.style.fill ?? '#000000');
-    el.setAttribute('font-size',   fs);
-    el.setAttribute('font-family', ff);
-    el.setAttribute('clip-path',   `inset(0 0 0 0)`); // overridden per-element by clipPathEl below
-    el.removeAttribute('transform');
-
-    // Clip overflow via SVG clipPath sibling — managed by renderer via data attrs
-    el.setAttribute('data-box-width',  bw);
-    el.setAttribute('data-box-height', bh);
-
-    const lines  = wrapText(shape._text ?? '', fs, ff, bw);
-    const maxLines = Math.floor(bh / lh);
-
-    // Reconcile tspan children
-    while (el.children.length > maxLines) el.removeChild(el.lastChild);
-    lines.slice(0, maxLines).forEach((line, i) => {
-      let tspan = el.children[i];
-      if (!tspan) {
-        tspan = document.createElementNS(NS, 'tspan');
-        el.appendChild(tspan);
-      }
-      tspan.setAttribute('x',  shape.attrs.x);
-      tspan.setAttribute('dy', i === 0 ? fs : lh);
-      tspan.textContent = line;
-    });
   }
 
   getBBox(shape) {

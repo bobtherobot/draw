@@ -1,7 +1,7 @@
 import { Tool } from './base.js';
 import { rectToPathD } from '../geometry/path-utils.js';
-
-const NS = 'http://www.w3.org/2000/svg';
+import { applyTransform } from '../viewport.js';
+import { getCK } from '../render/renderer.js';
 
 export class RectTool extends Tool {
   get id()       { return 'rect'; }
@@ -14,22 +14,18 @@ export class RectTool extends Tool {
 
   onMouseDown(e) {
     if (e.button !== 0) return;
-    this._drawing  = true;
-    this._start    = this._ctx.screenToDoc(e.clientX, e.clientY);
-    this._layer    = this._ctx.overlay.acquireLayer('rect-preview');
-    this._preview  = this._layer.borrow('path');
-    const s = this._ctx.state.currentStyle;
-    this._preview.setAttribute('fill',         s.fill        ?? 'none');
-    this._preview.setAttribute('stroke',       s.stroke      ?? '#000');
-    this._preview.setAttribute('stroke-width', s.strokeWidth ?? 1);
-    this._preview.style.pointerEvents = 'none';
-    this._preview.setAttribute('vector-effect', 'non-scaling-stroke');
+    this._drawing = true;
+    this._start   = this._ctx.screenToDoc(e.clientX, e.clientY);
+    this._geom    = null;
+    this._style   = { ...this._ctx.state.currentStyle };
+    this._layer   = this._ctx.overlay.acquireLayer('rect-preview');
+    this._layer.addCall(ctx => this._drawPreview(ctx));
   }
 
   onMouseMove(e) {
     if (!this._drawing) return;
-    const { x, y, w, h } = this._getRect(e);
-    this._preview.setAttribute('d', rectToPathD({ x, y, width: w, height: h }));
+    this._geom = this._getRect(e);
+    this._ctx.render();
   }
 
   onMouseUp(e) {
@@ -54,10 +50,39 @@ export class RectTool extends Tool {
 
   onKeyDown(e) { if (e.key === 'Escape') this._cancel(); }
 
+  _drawPreview(ckCanvas) {
+    const g = this._geom;
+    if (!g || g.w < 1 || g.h < 1) return;
+    const CK = getCK();
+    const s  = this._style;
+    const z  = this._ctx.state.viewport.zoom;
+    ckCanvas.save();
+    applyTransform(ckCanvas);
+    const rect = CK.XYWHRect(g.x, g.y, g.w, g.h);
+    if (s.fill && s.fill !== 'none') {
+      const p = new CK.Paint();
+      p.setStyle(CK.PaintStyle.Fill);
+      p.setColor(CK.parseColorString(s.fill));
+      p.setAntiAlias(true);
+      ckCanvas.drawRect(rect, p);
+      p.delete();
+    }
+    if (s.stroke && s.stroke !== 'none') {
+      const p = new CK.Paint();
+      p.setStyle(CK.PaintStyle.Stroke);
+      p.setColor(CK.parseColorString(s.stroke));
+      p.setStrokeWidth((s.strokeWidth ?? 1) / z);
+      p.setAntiAlias(true);
+      ckCanvas.drawRect(rect, p);
+      p.delete();
+    }
+    ckCanvas.restore();
+  }
+
   _getRect(e) {
-    const pos  = this._ctx.screenToDoc(e.clientX, e.clientY);
-    let   w    = Math.abs(pos.x - this._start.x);
-    let   h    = Math.abs(pos.y - this._start.y);
+    const pos = this._ctx.screenToDoc(e.clientX, e.clientY);
+    let   w   = Math.abs(pos.x - this._start.x);
+    let   h   = Math.abs(pos.y - this._start.y);
     if (e.shiftKey) { const s = Math.min(w, h); w = s; h = s; }
     return { x: Math.min(this._start.x, pos.x), y: Math.min(this._start.y, pos.y), w, h };
   }
@@ -65,7 +90,8 @@ export class RectTool extends Tool {
   _cancel() {
     this._drawing = false;
     this._start   = null;
+    this._geom    = null;
+    this._style   = null;
     if (this._layer) { this._ctx?.overlay.releaseLayer('rect-preview'); this._layer = null; }
-    this._preview = null;
   }
 }

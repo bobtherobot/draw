@@ -2,8 +2,8 @@ import { ObjectType } from './base.js';
 import { nextId } from '../core/state.js';
 import { parsePathD, buildPathD } from '../geometry/path-utils.js';
 import { translatePathD, scalePathD, rotatePathD } from '../geometry/transform.js';
+import { getCK } from '../render/renderer.js';
 
-const NS = 'http://www.w3.org/2000/svg';
 const HIT_TOLERANCE = 4; // px in doc space (scaled by zoom below)
 
 export class PathObjectType extends ObjectType {
@@ -11,50 +11,40 @@ export class PathObjectType extends ObjectType {
   get label() { return 'Path'; }
   get icon()  { return 'object-path'; }
 
-  draw(ctx, shape, viewState) {
+  draw(ckCanvas, shape, viewState) {
+    const CK  = getCK();
     const { zoom } = viewState;
-    const segs = parsePathD(shape.attrs.d ?? '');
-    if (!segs.length) return;
+    const d   = shape.attrs.d ?? '';
+    if (!d) return;
 
-    ctx.beginPath();
-    _replayPath(ctx, segs);
+    const ckPath = CK.Path.MakeFromSVGString(d);
+    if (!ckPath) return;
 
     const fill   = shape.style.fill   ?? 'none';
     const stroke = shape.style.stroke ?? 'none';
+
     if (fill !== 'none') {
-      ctx.fillStyle = fill;
-      ctx.fill();
+      const paint = new CK.Paint();
+      paint.setStyle(CK.PaintStyle.Fill);
+      paint.setColor(CK.parseColorString(fill));
+      paint.setAntiAlias(true);
+      ckCanvas.drawPath(ckPath, paint);
+      paint.delete();
     }
     if (stroke !== 'none') {
-      ctx.strokeStyle = stroke;
-      ctx.lineWidth   = (shape.style.strokeWidth ?? 1) / zoom;
-      ctx.stroke();
+      const paint = new CK.Paint();
+      paint.setStyle(CK.PaintStyle.Stroke);
+      paint.setColor(CK.parseColorString(stroke));
+      paint.setStrokeWidth((shape.style.strokeWidth ?? 1) / zoom);
+      paint.setAntiAlias(true);
+      ckCanvas.drawPath(ckPath, paint);
+      paint.delete();
     }
+
+    ckPath.delete();
   }
 
-  makeElement(shape) {
-    const el = document.createElementNS(NS, 'path');
-    this.syncElement(el, shape, { mode: 'normal', zoom: 1 });
-    return el;
-  }
-
-  syncElement(el, shape, _viewState) {
-    el.setAttribute('d', shape.attrs.d ?? '');
-    el.setAttribute('fill',   shape.style.fill   ?? 'none');
-    el.setAttribute('stroke', shape.style.stroke ?? 'none');
-    el.setAttribute('stroke-width', shape.style.strokeWidth ?? 1);
-    el.setAttribute('vector-effect', 'non-scaling-stroke');
-    el.removeAttribute('transform');
-  }
-
-  getBBox(shape, el) {
-    if (el) {
-      try {
-        const b = el.getBBox();
-        if (b.width > 0 || b.height > 0) return b;
-      } catch (_) {}
-    }
-    // Fallback: scan path coordinates
+  getBBox(shape) {
     const segs = parsePathD(shape.attrs.d ?? '');
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (const { cmd, args } of segs) {
@@ -68,9 +58,9 @@ export class PathObjectType extends ObjectType {
     return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
   }
 
-  hitPart(shape, docX, docY, zoom, _el) {
+  hitPart(shape, docX, docY, zoom) {
     const tol = HIT_TOLERANCE / zoom;
-    const bb  = this.getBBox(shape, null);
+    const bb  = this.getBBox(shape);
     if (!bb) return null;
     // Cheap bbox pre-check
     if (docX < bb.x - tol || docX > bb.x + bb.width  + tol) return null;
@@ -79,23 +69,37 @@ export class PathObjectType extends ObjectType {
     const segs = parsePathD(shape.attrs.d ?? '');
     if (!segs.length) return null;
 
-    // Precise hit test using an offscreen canvas (1×1 is enough — isPointIn* is mathematical)
-    try {
-      const oc  = new OffscreenCanvas(1, 1);
-      const oct = oc.getContext('2d');
-      oct.beginPath();
-      _replayPath(oct, segs);
-      const inFill   = shape.style.fill   !== 'none' && oct.isPointInPath(docX, docY);
-      if (inFill) return { part: 'body' };
+    // Fill hit: use CanvasKit path.contains() (Skia winding-rule point-in-fill)
+    const CK = getCK();
+    if (CK) {
+      const ckPath = CK.Path.MakeFromSVGString(shape.attrs.d ?? '');
+      if (!ckPath) return { part: 'body' };
+      const inFill = shape.style.fill !== 'none' && ckPath.contains(docX, docY);
+      if (inFill) { ckPath.delete(); return { part: 'body' }; }
+      // Stroke hit: widen path by tolerance and re-test
       if (shape.style.stroke !== 'none') {
-        oct.lineWidth = (shape.style.strokeWidth ?? 1) + tol * 2;
-        if (oct.isPointInStroke(docX, docY)) return { part: 'body' };
+        const sw = (shape.style.strokeWidth ?? 1) + tol * 2;
+        const widened = ckPath.copy();
+        // Stroke-to-fill conversion: check if docX,docY is in the stroke outline
+        // Use OffscreenCanvas for stroke test as CanvasKit doesn't expose isPointInStroke
+        try {
+          const oc  = new OffscreenCanvas(1, 1);
+          const oct = oc.getContext('2d');
+          oct.beginPath();
+          _replayPath2D(oct, segs);
+          oct.lineWidth = sw;
+          if (oct.isPointInStroke(docX, docY)) { widened.delete(); ckPath.delete(); return { part: 'body' }; }
+        } catch (_) {
+          widened.delete(); ckPath.delete(); return { part: 'body' };
+        }
+        widened.delete();
       }
-    } catch (_) {
-      // OffscreenCanvas unavailable — fall back to bbox
-      return { part: 'body' };
+      ckPath.delete();
+      return null;
     }
-    return null;
+
+    // Fallback (CK not ready): bbox hit
+    return { part: 'body' };
   }
 
   translate(shape, dx, dy) {
@@ -151,8 +155,8 @@ export class PathObjectType extends ObjectType {
   }
 }
 
-// Replay parsed SVG path segments onto any canvas 2D context.
-function _replayPath(ctx, segs) {
+// Replay path segments onto a Canvas 2D context (for stroke hit-testing only).
+function _replayPath2D(ctx, segs) {
   for (const { cmd, args } of segs) {
     switch (cmd) {
       case 'M': ctx.moveTo(args[0], args[1]); break;

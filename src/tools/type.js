@@ -1,6 +1,8 @@
 import { Tool } from './base.js';
 import { startEditing, isEditing, commitEditing } from '../textedit.js';
 import { findItem, state, allDisplayItems } from '../core/state.js';
+import { applyTransform } from '../viewport.js';
+import { getCK } from '../render/renderer.js';
 
 export class TypeTool extends Tool {
   get id()       { return 'type'; }
@@ -25,16 +27,24 @@ export class TypeTool extends Tool {
     if (!isOverText) return;
 
     const ot = this._ctx.getObjectType(shape.type);
-    const el = this._ctx.getElement(shape.id);
-    const bb = ot?.getBBox(shape, el);
+    const bb = ot?.getBBox(shape);
     if (!bb) return;
 
-    const r = this._layer.borrow('rect');
-    r.setAttribute('x',      bb.x);
-    r.setAttribute('y',      bb.y);
-    r.setAttribute('width',  bb.width);
-    r.setAttribute('height', bb.height);
-    r.setAttribute('class',  'type-hover-outline');
+    this._layer.addCall(ckCanvas => {
+      const CK = getCK();
+      const z  = this._ctx.state.viewport.zoom;
+      ckCanvas.save();
+      applyTransform(ckCanvas);
+      const paint = new CK.Paint();
+      paint.setStyle(CK.PaintStyle.Stroke);
+      paint.setColor(CK.parseColorString('#55aaff'));
+      paint.setStrokeWidth(1 / z);
+      paint.setAntiAlias(false);
+      ckCanvas.drawRect(CK.XYWHRect(bb.x, bb.y, bb.width, bb.height), paint);
+      paint.delete();
+      ckCanvas.restore();
+    });
+    this._ctx.render();
   }
 
   onMouseDown(e) {
@@ -50,8 +60,7 @@ export class TypeTool extends Tool {
     for (let i = textShapes.length - 1; i >= 0; i--) {
       const shape = textShapes[i];
       const ot    = ctx.getObjectType(shape.type);
-      const el    = ctx.getElement(shape.id);
-      if (ot.hitPart(shape, pos.x, pos.y, zoom, el)) {
+      if (ot.hitPart(shape, pos.x, pos.y, zoom)) {
         this._openTextEditor(shape);
         return;
       }
@@ -89,7 +98,7 @@ export class TypeTool extends Tool {
         });
       },
     });
-    ctx.render(); // show pending guide immediately on click
+    ctx.render();
   }
 
   _openTextEditor(shape) {
@@ -129,6 +138,6 @@ export class TypeTool extends Tool {
         if (s) { s._text = snap._text; ctx.render(); }
       },
     });
-    ctx.render(); // hide SVG shape immediately, show textarea
+    ctx.render();
   }
 }

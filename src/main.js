@@ -36,7 +36,13 @@ const dom = buildApp();
 
 applyTheme(state.options.theme);
 
-initRenderer(dom.canvas);
+// CanvasKit (Skia WASM) is loaded as a classic script in index.html.
+// CanvasKitInit() is available as a global at this point.
+const CK = await CanvasKitInit({
+  locateFile: f => new URL(`../assets/vendor/canvaskit/${f}`, import.meta.url).href,
+});
+
+initRenderer(dom.canvas, CK);
 
 // Keyboard must be initialized before toolbar so setActiveTool is available
 initKeyboard();
