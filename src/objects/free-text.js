@@ -1,0 +1,247 @@
+import { ObjectType } from './base.js';
+import { nextId } from '../core/state.js';
+
+const NS = 'http://www.w3.org/2000/svg';
+
+// ── Canvas measurement ────────────────────────────────────────────────────────
+
+let _measureCtx = null;
+function _getMeasureCtx() {
+  if (!_measureCtx) _measureCtx = document.createElement('canvas').getContext('2d');
+  return _measureCtx;
+}
+
+export function measureTextWidth(text, fontSize, fontFamily) {
+  if (!text) return 0;
+  const ctx = _getMeasureCtx();
+  ctx.font = `${fontSize}px ${fontFamily}`;
+  let maxW = 0;
+  for (const line of text.split('\n'))
+    maxW = Math.max(maxW, ctx.measureText(line).width);
+  return maxW;
+}
+
+// ── ObjectType ────────────────────────────────────────────────────────────────
+
+export class FreeTextObjectType extends ObjectType {
+  get id()    { return 'free-text'; }
+  get label() { return 'Text'; }
+  get icon()  { return 'object-free-text'; }
+
+  createShape(initAttrs, initStyle) {
+    return {
+      id:          nextId(this.id),
+      type:        'free-text',
+      attrs:       { x: 0, y: 0, ...initAttrs },
+      style:       { fill: '#000000', stroke: 'none', strokeWidth: 1, ...initStyle },
+      _text:       initAttrs._text       ?? '',
+      _fontSize:   initAttrs._fontSize   ?? 14,
+      _fontFamily: initAttrs._fontFamily ?? 'sans-serif',
+      _textAlign:  initAttrs._textAlign  ?? 'left',
+    };
+  }
+
+  makeElement(shape) {
+    const el = document.createElementNS(NS, 'text');
+    this.syncElement(el, shape, { mode: 'normal', zoom: 1 });
+    return el;
+  }
+
+  syncElement(el, shape, _viewState) {
+    const x  = shape.attrs.x ?? 0;
+    const y  = shape.attrs.y ?? 0;
+    const fs = shape._fontSize  ?? 14;
+    const ff = shape._fontFamily ?? 'sans-serif';
+    const lh = fs * 1.3;
+
+    el.setAttribute('fill',        shape.style.fill ?? '#000000');
+    el.setAttribute('font-size',   fs);
+    el.setAttribute('font-family', ff);
+    el.setAttribute('text-anchor', _anchorFor(shape._textAlign));
+    // x/y live on tspans, not the root text element
+    el.removeAttribute('x');
+    el.removeAttribute('y');
+
+    // Rotation and non-uniform scale are stored as shape properties and
+    // applied as an SVG transform — text coordinates can't be baked the
+    // way path coordinates can.
+    const scaleX   = shape._scaleX   ?? 1;
+    const scaleY   = shape._scaleY   ?? 1;
+    const rotation = shape._rotation ?? 0;
+    const rotCx    = shape._rotCx    ?? x;
+    const rotCy    = shape._rotCy    ?? (y + fs);
+
+    if (rotation !== 0 || scaleX !== 1 || scaleY !== 1) {
+      let t = '';
+      if (rotation !== 0)
+        t += `rotate(${rotation},${rotCx},${rotCy}) `;
+      if (scaleX !== 1 || scaleY !== 1)
+        t += `translate(${x * (1 - scaleX)},${y * (1 - scaleY)}) scale(${scaleX},${scaleY})`;
+      el.setAttribute('transform', t.trim());
+    } else {
+      el.removeAttribute('transform');
+    }
+
+    // Reconcile tspans for multi-line text
+    const lines = (shape._text ?? '').split('\n');
+    while (el.children.length > lines.length) el.removeChild(el.lastChild);
+    lines.forEach((line, i) => {
+      let tspan = el.children[i];
+      if (!tspan) {
+        tspan = document.createElementNS(NS, 'tspan');
+        el.appendChild(tspan);
+      }
+      tspan.setAttribute('x', x);
+      if (i === 0) {
+        tspan.setAttribute('y', y + fs);
+        tspan.removeAttribute('dy');
+      } else {
+        tspan.setAttribute('dy', lh);
+        tspan.removeAttribute('y');
+      }
+      // Non-breaking space preserves empty lines in SVG rendering
+      tspan.textContent = line || ' ';
+    });
+  }
+
+  getBBox(shape, el) {
+    const hasTransform = (shape._scaleX ?? 1) !== 1 || (shape._scaleY ?? 1) !== 1 || (shape._rotation ?? 0) !== 0;
+    if (el && !hasTransform) {
+      try {
+        const b = el.getBBox();
+        if (b.width > 0 || b.height > 0) return b;
+      } catch (_) {}
+    }
+    // Fallback: measure with canvas API (always used when a transform is present,
+    // since el.getBBox() returns pre-transform local coords)
+    const fs    = shape._fontSize   ?? 14;
+    const ff    = shape._fontFamily ?? 'sans-serif';
+    const lines = (shape._text ?? '').split('\n');
+    const lh    = fs * 1.3;
+    const sx    = Math.abs(shape._scaleX ?? 1);
+    const sy    = Math.abs(shape._scaleY ?? 1);
+    const maxW  = measureTextWidth(shape._text ?? '', fs, ff) * sx;
+    const align = shape._textAlign ?? 'left';
+    const bx    = align === 'center' ? shape.attrs.x - maxW / 2
+                : align === 'right'  ? shape.attrs.x - maxW
+                :                      shape.attrs.x;
+    return {
+      x:      bx,
+      y:      shape.attrs.y,
+      width:  maxW,
+      height: lh * lines.length * sy,
+    };
+  }
+
+  hitPart(shape, docX, docY, zoom, el) {
+    const bb = this.getBBox(shape, el);
+    if (!bb) return null;
+    const tol = 4 / zoom;
+    if (docX >= bb.x - tol && docX <= bb.x + bb.width  + tol &&
+        docY >= bb.y - tol && docY <= bb.y + bb.height + tol) {
+      return { part: 'body' };
+    }
+    return null;
+  }
+
+  translate(shape, dx, dy) {
+    shape.attrs.x += dx;
+    shape.attrs.y += dy;
+    if (shape._rotCx != null) { shape._rotCx += dx; shape._rotCy += dy; }
+  }
+
+  scale(shape, sx, sy, ox, oy) {
+    shape.attrs.x = ox + (shape.attrs.x - ox) * sx;
+    shape.attrs.y = oy + (shape.attrs.y - oy) * sy;
+    shape._scaleX = (shape._scaleX ?? 1) * sx;
+    shape._scaleY = (shape._scaleY ?? 1) * sy;
+    if (shape._rotCx != null) {
+      shape._rotCx = ox + (shape._rotCx - ox) * sx;
+      shape._rotCy = oy + (shape._rotCy - oy) * sy;
+    }
+  }
+
+  bakeRotation(shape, angleDeg, cx, cy) {
+    shape._rotation = (shape._rotation ?? 0) + angleDeg;
+    shape._rotCx    = cx;
+    shape._rotCy    = cy;
+  }
+
+  toSVGString(shape, includeMetadata) {
+    const s   = shape.style;
+    const fs  = shape._fontSize   ?? 14;
+    const ff  = shape._fontFamily ?? 'sans-serif';
+    const lh  = fs * 1.3;
+    const x   = shape.attrs.x;
+    const y   = shape.attrs.y;
+    const meta = includeMetadata ? ` data-id="${shape.id}" data-type="free-text"` : '';
+
+    const scaleX   = shape._scaleX   ?? 1;
+    const scaleY   = shape._scaleY   ?? 1;
+    const rotation = shape._rotation ?? 0;
+    const rotCx    = shape._rotCx    ?? x;
+    const rotCy    = shape._rotCy    ?? (y + fs);
+    let transformAttr = '';
+    if (rotation !== 0 || scaleX !== 1 || scaleY !== 1) {
+      let t = '';
+      if (rotation !== 0)
+        t += `rotate(${rotation},${rotCx},${rotCy}) `;
+      if (scaleX !== 1 || scaleY !== 1)
+        t += `translate(${x * (1 - scaleX)},${y * (1 - scaleY)}) scale(${scaleX},${scaleY})`;
+      transformAttr = ` transform="${t.trim()}"`;
+    }
+
+    const lines  = (shape._text ?? '').split('\n');
+    const tspans = lines.map((line, i) => {
+      const pos = i === 0 ? ` y="${y + fs}"` : ` dy="${lh}"`;
+      return `<tspan x="${x}"${pos}>${_escapeXML(line)}</tspan>`;
+    }).join('');
+
+    const anchor = _anchorFor(shape._textAlign);
+    return `<text fill="${s.fill ?? '#000'}" font-size="${fs}" font-family="${ff}" text-anchor="${anchor}"${transformAttr}${meta}>${tspans}</text>`;
+  }
+
+  fromSVGElement(el) {
+    if (el.tagName !== 'text') return null;
+    if (el.getAttribute('data-type') === 'text-block') return null;
+    const tspans   = Array.from(el.querySelectorAll('tspan'));
+    const fs       = Number(el.getAttribute('font-size') ?? 14);
+    const firstY   = Number(tspans[0]?.getAttribute('y') ?? fs);
+    // tspan[0].y = attrs.y + fontSize  →  attrs.y = firstY - fontSize
+    const x        = Number(tspans[0]?.getAttribute('x') ?? el.getAttribute('x') ?? 0);
+    const y        = firstY - fs;
+    const text     = tspans.length > 0
+      ? tspans.map(t => t.textContent.replace(' ', '')).join('\n')
+      : (el.textContent ?? '');
+    return {
+      id:          nextId(this.id),
+      type:        'free-text',
+      attrs:       { x, y },
+      style:       { fill: el.getAttribute('fill') ?? '#000000', stroke: 'none', strokeWidth: 1 },
+      _text:       text,
+      _fontSize:   fs,
+      _fontFamily: el.getAttribute('font-family') ?? 'sans-serif',
+      _textAlign:  _alignFor(el.getAttribute('text-anchor')),
+    };
+  }
+
+  getWireframePoints(shape) {
+    return [{ x: shape.attrs.x, y: shape.attrs.y }];
+  }
+}
+
+function _anchorFor(align) {
+  if (align === 'center') return 'middle';
+  if (align === 'right')  return 'end';
+  return 'start';
+}
+
+function _alignFor(anchor) {
+  if (anchor === 'middle') return 'center';
+  if (anchor === 'end')    return 'right';
+  return 'left';
+}
+
+function _escapeXML(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}

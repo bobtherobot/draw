@@ -16,6 +16,7 @@
  *   'zone-change'      — zone name string ('canvas'|'layers'|'style'|'toolbar'|'menubar'|'commandbar')
  *   'layers-delete'    — keyboard Delete/Backspace fired while layers zone is active
  *   'layers-escape'    — keyboard Escape fired while layers zone is active
+ *   'hover-change'     — string|null  shape id the cursor moved onto or off (null = no shape)
  */
 
 /** @type {Map<string, Set<Function>>} */

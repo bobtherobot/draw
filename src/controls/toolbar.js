@@ -17,23 +17,35 @@ import { execute }                      from '../core/history.js';
 import { modifiers }                    from '../core/modifiers.js';
 import { setActiveTool }                from './keyboard.js';
 
-let _toolbarEl = null;
-let _appCtx    = null;
+let _toolbarEl       = null;
+let _appCtx          = null;
+let _hintEl          = null;
+let _lastHoverShapeId = null;
+
+const _SCALE_HANDLES = new Set(['nw','n','ne','e','se','s','sw','w']);
 
 /** Wire up the toolbar DOM and the canvas event routing. */
-export function initToolbar(toolbarEl, canvasWrap) {
+export function initToolbar(toolbarEl, canvasWrap, statusbarEl) {
   _toolbarEl = toolbarEl;
   _buildAppContext();
   _buildToolbar();
   _wireCanvasEvents(canvasWrap);
   _wireCanvasWheel(canvasWrap);
 
+  // Hint span in the status bar
+  if (statusbarEl) {
+    _hintEl = document.createElement('span');
+    _hintEl.className    = 'statusbar__hint';
+    _hintEl.style.display = 'none';
+    statusbarEl.appendChild(_hintEl);
+  }
+
   // Init all tools with context, activate the initial tool
   for (const tool of getAllTools()) tool.init(_appCtx);
   getTool(state.activeTool)?.activate();
 
-  // Reflect tool changes in toolbar UI
-  on('tool-change', ({ tool }) => _refreshActive(tool));
+  // Reflect tool changes in toolbar UI + clear stale hint
+  on('tool-change', ({ tool }) => { _refreshActive(tool); _updateHint(); });
 }
 
 function _buildAppContext() {
@@ -122,12 +134,26 @@ function _onMouseDown(e) {
     const tool = getTool(intent.effectiveTool);
     tool?.onMouseDown(e);
   }
+
+  // Sync body.dragging after tool has had a chance to set state.operation
+  document.body.classList.toggle('dragging', state.operation !== null);
+  _updateHint();
 }
 
 function _onMouseMove(e) {
   const hit    = hitTest(e.clientX, e.clientY, getObjectType, getElement);
   const intent = computeIntent(hit);
   state.intent  = intent;
+  state.hover   = { objectType: hit?.objectType ?? null, part: hit?.part ?? null, shape: hit?.shape ?? null };
+
+  // Emit hover-change only when the hovered shape actually changes
+  const hoverId = hit?.shape?.id ?? null;
+  if (hoverId !== _lastHoverShapeId) {
+    _lastHoverShapeId = hoverId;
+    emit('hover-change', hoverId);
+  }
+
+  _updateHint();
 
   const handled = dispatch(intent, 'mousemove', _appCtx, e);
   if (!handled) {
@@ -144,6 +170,10 @@ function _onMouseUp(e) {
     const tool = getTool(intent.effectiveTool);
     tool?.onMouseUp(e);
   }
+
+  // Sync body.dragging after tool has had a chance to clear state.operation
+  document.body.classList.toggle('dragging', state.operation !== null);
+  _updateHint();
 }
 
 function _onDblClick(e) {
@@ -164,5 +194,38 @@ function _onWheel(e) {
     zoomAt(factor, e.clientX, e.clientY);
   } else {
     zoomAt(factor);
+  }
+}
+
+// ── Status bar hint ──────────────────────────────────────────────────────────
+
+function _hintText() {
+  const op = state.operation;
+  if (op) {
+    if (op === 'text-edit')          return 'Editing text';
+    if (op === 'rotate')             return 'Rotating';
+    if (op === 'band')               return 'Selecting';
+    if (op.startsWith('scale:'))     return 'Scaling';
+    if (op === 'move')               return 'Moving';
+  }
+  const { objectType, part } = state.hover;
+  const tool = state.activeTool;
+  if (part === 'rotate') return 'Drag to rotate';
+  if (_SCALE_HANDLES.has(part)) return 'Drag to scale';
+  if (objectType === 'free-text' || objectType === 'text-block') {
+    if (tool === 'select') return 'Double-click to edit text';
+    if (tool === 'type')   return 'Click to edit text';
+  }
+  return null;
+}
+
+function _updateHint() {
+  if (!_hintEl) return;
+  const text = _hintText();
+  if (text) {
+    _hintEl.textContent  = text;
+    _hintEl.style.display = '';
+  } else {
+    _hintEl.style.display = 'none';
   }
 }

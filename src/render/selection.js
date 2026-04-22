@@ -2,8 +2,9 @@
  * Selection bounding box, scale handles, and rotate handle.
  * Rendered into the 'selection' overlay layer via OverlayManager.
  */
-import { findItem }    from '../core/state.js';
-import { unionBBoxes } from '../geometry/bbox.js';
+import { findItem }         from '../core/state.js';
+import { unionBBoxes }      from '../geometry/bbox.js';
+import { getEditingShapeId } from '../textedit.js';
 
 const HANDLE_SIZE  = 6;   // screen px
 const ROTATE_DIST  = 20;  // screen px above the top-center handle
@@ -24,9 +25,11 @@ export function renderSelection(layer, state, getObjectType, getElement) {
 
   const { viewport: { zoom } } = state;
 
-  // Gather bboxes for selected shapes
+  // Gather bboxes for selected shapes (skip the shape currently being edited)
+  const editingId = getEditingShapeId();
   const bboxes = [];
   for (const id of state.selection) {
+    if (id === editingId) continue;
     const shape = findItem(id);
     if (!shape) continue;
     const ot = getObjectType(shape.type);
@@ -54,14 +57,14 @@ export function renderSelection(layer, state, getObjectType, getElement) {
 
   // Scale handles — 8 cardinal/corner positions
   const handles = [
-    { id: 'handle-nw', x: bb.x,                   y: bb.y },
-    { id: 'handle-n',  x: bb.x + bb.width / 2,    y: bb.y },
-    { id: 'handle-ne', x: bb.x + bb.width,         y: bb.y },
-    { id: 'handle-e',  x: bb.x + bb.width,         y: bb.y + bb.height / 2 },
-    { id: 'handle-se', x: bb.x + bb.width,         y: bb.y + bb.height },
-    { id: 'handle-s',  x: bb.x + bb.width / 2,     y: bb.y + bb.height },
-    { id: 'handle-sw', x: bb.x,                    y: bb.y + bb.height },
-    { id: 'handle-w',  x: bb.x,                    y: bb.y + bb.height / 2 },
+    { id: 'nw', x: bb.x,                   y: bb.y },
+    { id: 'n',  x: bb.x + bb.width / 2,    y: bb.y },
+    { id: 'ne', x: bb.x + bb.width,         y: bb.y },
+    { id: 'e',  x: bb.x + bb.width,         y: bb.y + bb.height / 2 },
+    { id: 'se', x: bb.x + bb.width,         y: bb.y + bb.height },
+    { id: 's',  x: bb.x + bb.width / 2,     y: bb.y + bb.height },
+    { id: 'sw', x: bb.x,                    y: bb.y + bb.height },
+    { id: 'w',  x: bb.x,                    y: bb.y + bb.height / 2 },
   ];
 
   for (const h of handles) {

@@ -41,7 +41,7 @@ initRenderer(dom.svg);
 
 // Keyboard must be initialized before toolbar so setActiveTool is available
 initKeyboard();
-initToolbar(dom.toolbar, dom.canvasWrap);
+initToolbar(dom.toolbar, dom.canvasWrap, dom.statusbar);
 initPanelManager();
 initStylePanel(registerPanel);
 initLayersPanel(registerPanel);

@@ -5,7 +5,7 @@
 import { Tool } from './base.js';
 import { startEditing, isEditing } from '../textedit.js';
 import { unionBBoxes } from '../geometry/bbox.js';
-import { effectiveVisible, allDisplayItems, findItem, sanitizeItems } from '../core/state.js';
+import { effectiveVisible, effectiveLocked, allDisplayItems, findItem, sanitizeItems } from '../core/state.js';
 
 const SCALE_HANDLES = ['nw','n','ne','e','se','s','sw','w'];
 const DBL_CLICK_MS  = 400;
@@ -54,7 +54,7 @@ export class SelectTool extends Tool {
       const hitId = this._shapeIdAt(e.target);
       if (hitId && hitId === this._lastClickId && now - this._lastClickT < DBL_CLICK_MS) {
         const shape = findItem(hitId);
-        if (shape && (shape.type === 'text-line' || shape.type === 'text-block')) {
+        if (shape && (shape.type === 'free-text' || shape.type === 'text-block')) {
           this._lastClickId = null;
           this._openTextEditor(shape, hitId);
           return;
@@ -83,11 +83,13 @@ export class SelectTool extends Tool {
         ctx.state.selection = sel;
       }
       this._mode = 'move';
+      ctx.state.operation = 'move';
       this._snapshotMove();
       ctx.render();
     } else {
       if (!e.shiftKey) ctx.state.selection = new Set();
       this._mode      = 'band';
+      ctx.state.operation = 'band';
       this._bandLayer = ctx.overlay.acquireLayer('select-band');
       this._bandEl    = this._bandLayer.borrow('rect');
       this._bandEl.setAttribute('class', 'rubber-band');
@@ -128,7 +130,7 @@ export class SelectTool extends Tool {
       this._doScale(pos, e.shiftKey);
       ctx.render();
     } else if (this._mode === 'rotate') {
-      this._doRotate(pos);
+      this._doRotate(pos, e.shiftKey);
       ctx.render();
     }
   }
@@ -203,6 +205,7 @@ export class SelectTool extends Tool {
 
   _enterScale(handle) {
     this._mode        = 'scale';
+    this._ctx.state.operation = `scale:${handle}`;
     this._scaleHandle = handle;
     this._snapshots.clear();
     for (const id of this._ctx.state.selection) {
@@ -219,18 +222,16 @@ export class SelectTool extends Tool {
     if (!bb) return;
     const h    = this._scaleHandle;
 
-    // Determine fixed origin (opposite corner/edge) and new extents
-    const fixedX = h.includes('e') ? bb.x          : bb.x + bb.width;
-    const fixedY = h.includes('s') ? bb.y          : bb.y + bb.height;
-    const newW   = h.includes('e') ? pos.x - bb.x  : bb.x + bb.width  - pos.x;
-    const newH   = h.includes('s') ? pos.y - bb.y  : bb.y + bb.height - pos.y;
+    const newW = h.includes('e') ? pos.x - bb.x  : bb.x + bb.width  - pos.x;
+    const newH = h.includes('s') ? pos.y - bb.y  : bb.y + bb.height - pos.y;
 
     let sx = newW / bb.width  || 1;
     let sy = newH / bb.height || 1;
     // Edge-only handles constrain one axis
     if (h === 'n' || h === 's') sx = 1;
     if (h === 'e' || h === 'w') sy = 1;
-    if (constrain) { const s = Math.min(Math.abs(sx), Math.abs(sy)); sx = sx < 0 ? -s : s; sy = sy < 0 ? -s : s; }
+    const isCorner = h.length === 2;
+    if (constrain && isCorner) { const s = Math.min(Math.abs(sx), Math.abs(sy)); sx = sx < 0 ? -s : s; sy = sy < 0 ? -s : s; }
 
     const ox = h.includes('w') ? bb.x + bb.width  : bb.x;
     const oy = h.includes('n') ? bb.y + bb.height : bb.y;
@@ -249,6 +250,7 @@ export class SelectTool extends Tool {
 
   _enterRotate() {
     this._mode    = 'rotate';
+    this._ctx.state.operation = 'rotate';
     this._snapshots.clear();
     for (const id of this._ctx.state.selection) {
       const shape = findItem(id);
@@ -261,10 +263,11 @@ export class SelectTool extends Tool {
     }
   }
 
-  _doRotate(pos) {
+  _doRotate(pos, snap) {
     if (!this._rotCenter) return;
     const angle = Math.atan2(pos.y - this._rotCenter.y, pos.x - this._rotCenter.x) * 180 / Math.PI;
     let   delta = angle - this._rotStart;
+    if (snap) delta = Math.round(delta / 15) * 15;
     for (const id of this._ctx.state.selection) {
       const shape = findItem(id);
       if (!shape) continue;
@@ -287,7 +290,7 @@ export class SelectTool extends Tool {
     const sel = additive ? new Set(ctx.state.selection) : new Set();
     for (const shape of allDisplayItems()) {
       if (!effectiveVisible(shape)) continue;
-      if (shape.visible === false || shape.locked === true) continue;
+      if (effectiveLocked(shape)) continue;
       const ot = ctx.getObjectType(shape.type);
       const bb = ot?.getBBox(shape, ctx.getElement(shape.id));
       if (!bb) continue;
@@ -335,19 +338,38 @@ export class SelectTool extends Tool {
     startEditing({
       docX:        shape.attrs.x,
       docY:        shape.attrs.y,
-      fontSize:    shape._fontSize ?? 14,
-      fill:        shape.style.fill ?? '#000000',
+      fontSize:    shape._fontSize   ?? 14,
+      fontFamily:  shape._fontFamily ?? 'sans-serif',
+      textAlign:   shape._textAlign  ?? 'left',
+      fill:        shape.style.fill  ?? '#000000',
+      scaleX:      shape._scaleX     ?? 1,
+      scaleY:      shape._scaleY     ?? 1,
       zoom:        ctx.state.viewport.zoom,
+      shapeId,
       boxWidth:    shape.type === 'text-block' ? shape._boxWidth  : undefined,
       boxHeight:   shape.type === 'text-block' ? shape._boxHeight : undefined,
       initialText: shape._text ?? '',
+      onInput: (text) => {
+        // Live-update the shape so text guides reflect current content while typing.
+        // The SVG element is hidden by the renderer while shapeId === getEditingShapeId().
+        const s = findItem(shapeId);
+        if (s) { s._text = text; ctx.render(); }
+      },
       onCommit: (text) => {
+        // Restore snap text first so execute's do() starts from a clean state
+        const s = findItem(shapeId);
+        if (s) s._text = snap._text;
         ctx.execute({
           do()   { const s = findItem(shapeId); if (s) { s._text = text; ctx.render(); } },
           undo() { const s = findItem(shapeId); if (s) { _restoreShape(s, snap); ctx.render(); } },
         });
       },
+      onCancel: () => {
+        const s = findItem(shapeId);
+        if (s) { _restoreShape(s, snap); ctx.render(); }
+      },
     });
+    ctx.render(); // hide SVG shape immediately, show textarea
   }
 
   // ── Delete ───────────────────────────────────────────────────────────────────
@@ -382,7 +404,11 @@ export class SelectTool extends Tool {
   _shapeIdAt(target) {
     let el = target;
     while (el && el.id !== 'canvas') {
-      if (el.dataset?.shapeId) return el.dataset.shapeId;
+      if (el.dataset?.shapeId) {
+        const shape = findItem(el.dataset.shapeId);
+        if (shape && effectiveLocked(shape)) return null;
+        return el.dataset.shapeId;
+      }
       el = el.parentElement;
     }
     return null;
@@ -412,6 +438,7 @@ export class SelectTool extends Tool {
     this._scaleHandle = null;
     this._rotCenter   = null;
     this._rotStart    = null;
+    if (this._ctx) this._ctx.state.operation = null;
   }
 }
 
@@ -428,7 +455,9 @@ function _cloneShape(shape) {
 function _restoreShape(shape, snap) {
   Object.assign(shape.attrs, snap.attrs);
   Object.assign(shape.style, snap.style);
-  for (const k of ['_text','_fontSize','_fontFamily','_boxWidth','_boxHeight']) {
+  for (const k of ['_text','_fontSize','_fontFamily','_textAlign','_boxWidth','_boxHeight',
+                   '_scaleX','_scaleY','_rotation','_rotCx','_rotCy']) {
     if (k in snap) shape[k] = snap[k];
+    else delete shape[k];
   }
 }

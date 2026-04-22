@@ -86,7 +86,7 @@ All items live in `state.items` (flat array). Tree structure is encoded via `par
   type:     'artboard'        // pure container, owns dimensions
            | 'group'          // pure container, no geometry
            | 'path'           // display item, may have children
-           | 'text-line'
+           | 'free-text'
            | 'text-block',
   name:     'Layer 1',        // optional; auto-derived for display items if absent
   parentId: null | 'item1',   // null = root level

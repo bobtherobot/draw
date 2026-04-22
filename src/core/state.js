@@ -13,7 +13,7 @@
  *
  * type 'group'      — pure container, no geometry
  * type 'path'       — display item, may have children
- * type 'text-line'  — display item, may have children
+ * type 'free-text'  — display item, may have children
  * type 'text-block' — display item, may have children
  */
 
@@ -21,7 +21,7 @@ let _idCounter = 0;
 
 /**
  * Generate a unique ID. prefix should be a short lowercase string (no spaces).
- * Format: `${prefix}${integer}` — e.g. "item1", "path3", "text-line7".
+ * Format: `${prefix}${integer}` — e.g. "item1", "path3", "free-text7".
  * IDs are session-local; they must be reconstructed on file load (never trusted
  * from serialized data) to avoid collisions between documents.
  */
@@ -104,6 +104,29 @@ export const state = {
     shape:         null,
     modifiers:     { meta: false, ctrl: false, alt: false, shift: false, space: false },
   },
+
+  /**
+   * Live hover context — what's under the cursor right now.
+   * Updated on every mousemove. Read-only outside of toolbar.js.
+   * @type {{ objectType: string|null, part: string|null, shape: object|null }}
+   */
+  hover: { objectType: null, part: null, shape: null },
+
+  /**
+   * The operation currently in progress. null when idle.
+   * Written by tools on mousedown, cleared on mouseup/commit.
+   *
+   * Defined values:
+   *   'move'          — dragging selected shapes
+   *   'scale:<handle>'— scaling via a handle, e.g. 'scale:nw', 'scale:se'
+   *   'rotate'        — rotating selected shapes
+   *   'band'          — rubber-band selection
+   *   'text-edit'     — text editor active (new or existing shape)
+   *
+   * Tools may define additional values for future operations.
+   * @type {string|null}
+   */
+  operation: null,
 };
 
 /** Return the active container item, falling back to the first root group. */

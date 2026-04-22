@@ -5,8 +5,9 @@
  * Shift-click adds/removes from _panelSel; footer bulk actions operate on _panelSel.
  * For display-item rows, _panelSel and state.selection are kept in sync.
  */
-import { state, effectiveVisible, effectiveLocked, nextId, sanitizeName, findItem, sanitizeItems } from '../core/state.js';
+import { state, effectiveVisible, effectiveLocked, allDisplayItems, nextId, sanitizeName, findItem, sanitizeItems } from '../core/state.js';
 import { on, emit }    from '../core/events.js';
+
 import { registerZone, getZone } from '../core/focus.js';
 import { execute }     from '../core/history.js';
 import { getIconSync } from '../core/icons.js';
@@ -14,14 +15,15 @@ import { render }      from '../render/renderer.js';
 
 const INDENT_PX = 12;
 
-let _panelBody   = null;
-let _panelFooter = null;
-let _version     = null;
-let _panelSel    = new Set(); // 'item:<id>'
-let _anchor      = null;
-let _drag        = null;
-let _didDrag     = false;
-let _dropLineEl  = null;
+let _panelBody      = null;
+let _panelFooter    = null;
+let _version        = null;
+let _panelSel       = new Set(); // 'item:<id>'
+let _anchor         = null;
+let _drag           = null;
+let _didDrag        = false;
+let _dropLineEl     = null;
+let _hoverShapeId   = null;
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 
@@ -44,6 +46,7 @@ export function initLayersPanel(registerPanel) {
   on('zone-change',      zone => { if (zone !== 'layers') { _onCanvasSelChange(); _refresh(); } });
   on('layers-delete',    _deleteSelected);
   on('layers-escape',    () => { _onCanvasSelChange(); _refresh(); });
+  on('hover-change',     _updateHoverRow);
 
   document.addEventListener('mousemove', _onDragMove);
   document.addEventListener('mouseup',   _onDragUp);
@@ -91,6 +94,20 @@ function _refresh() {
     _panelBody.appendChild(_itemEl(node, 0));
   }
   _rebuildFooter();
+  _updateHoverRow(_hoverShapeId);
+}
+
+// ── Hover highlight (canvas → panel) ─────────────────────────────────────────
+
+function _updateHoverRow(shapeId) {
+  _hoverShapeId = shapeId ?? null;
+  if (!_panelBody) return;
+  for (const el of _panelBody.querySelectorAll('.lp-shape--hover'))
+    el.classList.remove('lp-shape--hover');
+  if (shapeId) {
+    _panelBody.querySelector(`.lp-shape[data-item-id="${shapeId}"]`)
+      ?.classList.add('lp-shape--hover');
+  }
 }
 
 // ── Footer ────────────────────────────────────────────────────────────────────
@@ -215,6 +232,7 @@ function _itemEl(node, depth) {
   lockBtn.addEventListener('click', e => {
     e.stopPropagation();
     item.locked = !item.locked;
+    _deselectLocked();
     _version = null;
     render();
   });
@@ -294,9 +312,9 @@ function _itemEl(node, depth) {
 
 function _itemName(item) {
   if (item.name) return item.name;
-  if (item.type === 'text-line' || item.type === 'text-block') {
+  if (item.type === 'free-text' || item.type === 'text-block') {
     if (item._text?.trim()) return item._text.slice(0, 28);
-    return item.type === 'text-line' ? 'Text' : 'Text Block';
+    return item.type === 'free-text' ? 'Free Text' : 'Text Block';
   }
   return { path: 'Path', group: 'Group', artboard: 'Artboard' }[item.type] ?? item.type;
 }
@@ -432,6 +450,14 @@ function _masterToggleVisible() {
   });
 }
 
+function _deselectLocked() {
+  const sel = new Set(state.selection);
+  for (const shape of allDisplayItems()) {
+    if (sel.has(shape.id) && effectiveLocked(shape)) sel.delete(shape.id);
+  }
+  state.selection = sel;
+}
+
 function _masterToggleLock() {
   const items = _resolveSelected();
   if (!items.length) return;
@@ -441,8 +467,8 @@ function _masterToggleLock() {
   const snaps     = items.map(it => ({ it, was: it.locked }));
 
   execute({
-    do()   { for (const { it } of snaps) it.locked = target;   _version = null; render(); },
-    undo() { for (const { it, was } of snaps) it.locked = was; _version = null; render(); },
+    do()   { for (const { it } of snaps) it.locked = target;   _deselectLocked(); _version = null; render(); },
+    undo() { for (const { it, was } of snaps) it.locked = was; _deselectLocked(); _version = null; render(); },
   });
 }
 
@@ -596,6 +622,7 @@ const _SCROLL_SPEED  = 5;
 // ── Drag start ────────────────────────────────────────────────────────────────
 
 function _startDrag(e, item, rowEl, nodeEl) {
+  if (state.operation !== null) return; // canvas operation in progress
   e.preventDefault();
   _drag = {
     item, rowEl, hideEl: nodeEl,

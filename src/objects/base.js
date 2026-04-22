@@ -1,7 +1,7 @@
 /**
  * ObjectType base class.
  *
- * Each shape type (path, text-line, text-block, group) is a stateless singleton
+ * Each shape type (path, free-text, text-block, group) is a stateless singleton
  * that extends this class. Shape data stays as plain POJOs for simple undo snapshotting.
  *
  * See .claude/docs/OBJECT-TYPE.md for full contract documentation.

@@ -17,6 +17,7 @@ import { updateViewBox }     from '../viewport.js';
 import { OverlayManager }    from './overlay.js';
 import { renderTextGuides }  from './text-guides.js';
 import { renderSelection }   from './selection.js';
+import { getEditingShapeId } from '../textedit.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 
@@ -239,5 +240,5 @@ function _syncDisplayItem(item, parentSvgEl, activeMode, viewState) {
     : item;
 
   ot.syncElement(el, renderItem, viewState);
-  el.style.display = item.visible === false ? 'none' : '';
+  el.style.display = (item.visible === false || item.id === getEditingShapeId()) ? 'none' : '';
 }

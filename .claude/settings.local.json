@@ -25,7 +25,8 @@
       "Bash(node --check /mnt/blue/drives/projects/draw/src/tools/typearea.js)",
       "Bash(node --check /mnt/blue/drives/projects/draw/src/render/renderer.js)",
       "Bash(node --check /mnt/blue/drives/projects/draw/src/app.js)",
-      "Bash(node *)"
+      "Bash(node *)",
+      "Bash(git ls-tree *)"
     ]
   }
 }

@@ -2,7 +2,7 @@
 .statusbar {
   position: absolute;
   bottom: 0;
-  left: 44px; // offset past toolbar
+  left: 40px; // offset past toolbar
   right: 0;
   height: 24px;
   .flex-row();
@@ -32,4 +32,13 @@
     color: var(--theme-fg);
     min-width: 44px;
   }
+
+  &__hint {
+    font-size: @font-size-sm;
+    color: var(--theme-fg-dim);
+    font-family: @font-ui;
+    margin-left: auto;
+    padding-right: @sp-2;
+  }
 }
+

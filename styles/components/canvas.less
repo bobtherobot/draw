@@ -1,3 +1,8 @@
+// Disable text selection during any canvas drag operation
+body.dragging {
+  user-select: none;
+}
+
 // Canvas wrapper and cursor management
 .canvas-wrap {
   position: relative;
@@ -11,7 +16,7 @@
   &.tool-pen       { cursor: var(--cursor-pen, crosshair); }
   &.tool-rect      { cursor: var(--cursor-crosshair, crosshair); }
   &.tool-ellipse   { cursor: var(--cursor-crosshair, crosshair); }
-  &.tool-type      { cursor: var(--cursor-text, text); }
+  &.tool-type                  { cursor: var(--cursor-text, text); }
   &.tool-type-area { cursor: var(--cursor-crosshair, crosshair); }
   &.tool-zoom      { cursor: var(--cursor-zoom-in, zoom-in); }
   &.tool-hand      { cursor: var(--cursor-grab, grab); }
@@ -44,10 +49,10 @@
   vector-effect:  non-scaling-stroke;
   cursor:         nw-resize;
 
-  &[data-handle="handle-n"], &[data-handle="handle-s"]  { cursor: n-resize; }
-  &[data-handle="handle-e"], &[data-handle="handle-w"]  { cursor: e-resize; }
-  &[data-handle="handle-nw"],&[data-handle="handle-se"] { cursor: nw-resize; }
-  &[data-handle="handle-ne"],&[data-handle="handle-sw"] { cursor: ne-resize; }
+  &[data-handle="n"], &[data-handle="s"]  { cursor: n-resize; }
+  &[data-handle="e"], &[data-handle="w"]  { cursor: e-resize; }
+  &[data-handle="nw"],&[data-handle="se"] { cursor: nw-resize; }
+  &[data-handle="ne"],&[data-handle="sw"] { cursor: ne-resize; }
 }
 
 .selection-rotate-handle {
@@ -64,18 +69,25 @@
   pointer-events: none;
 }
 
+// Type tool — hover outline over existing text shapes
+.type-hover-outline {
+  fill:           none;
+  stroke:         #55aaff;
+  stroke-width:   1px;
+  vector-effect:  non-scaling-stroke;
+  pointer-events: none;
+}
+
 // Text guides
 .text-guide-sq {
-  fill:             none;
-  stroke:           var(--theme-accent);
-  stroke-width:     1px;
-  vector-effect:    non-scaling-stroke;
+  fill:           var(--theme-accent);
+  stroke:         none;
+  pointer-events: none;
 }
 
 .text-guide-line {
   stroke:           var(--theme-accent);
   stroke-width:     1px;
-  stroke-dasharray: 3 2;
   vector-effect:    non-scaling-stroke;
   pointer-events:   none;
 }

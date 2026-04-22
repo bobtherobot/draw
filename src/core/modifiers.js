@@ -73,6 +73,9 @@ export function setModifier(key, down, getTool, render) {
     const prevTool = getTool(prev);
     const nextTool = getTool(next);
     if (prevTool?.suspendTo) prevTool.suspendTo(next);
+    // Deactivate the override tool when returning to the base tool so it
+    // can clean up any inline styles or other state it set during activation.
+    if (prev !== state.activeTool && prevTool?.deactivate) prevTool.deactivate();
     if (nextTool?.activate)  nextTool.activate();
     state.intent.effectiveTool = next;
     emit('tool-suspend', { tool: prev, overrideTool: next });

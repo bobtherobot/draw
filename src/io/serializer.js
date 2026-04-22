@@ -204,7 +204,7 @@ function _elementToItem(el) {
   if (tag === 'rect')    return _legacyRect(el);
   if (tag === 'ellipse') return _legacyEllipse(el);
 
-  for (const typeId of ['text-block', 'text-line', 'path', 'group']) {
+  for (const typeId of ['text-block', 'free-text', 'path', 'group']) {
     const ot   = getObjectType(typeId);
     if (!ot) continue;
     const item = ot.fromSVGElement(el);
