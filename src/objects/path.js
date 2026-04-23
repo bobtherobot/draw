@@ -1,7 +1,7 @@
 import { ObjectType } from './base.js';
 import { nextId } from '../core/state.js';
 import { parsePathD, buildPathD } from '../geometry/path-utils.js';
-import { translatePathD, scalePathD, rotatePathD } from '../geometry/transform.js';
+import { translatePathD, scalePathD, rotatePathD, rotatePoint } from '../geometry/transform.js';
 import { getCK } from '../render/renderer.js';
 
 const HIT_TOLERANCE = 4; // px in doc space (scaled by zoom below)
@@ -120,13 +120,25 @@ export class PathObjectType extends ObjectType {
   }
 
   bakeRotation(shape, angleDeg, cx, cy) {
-    // Preserve the original pre-rotation bbox across consecutive bakes so the
-    // selection box always shows the tight rotated rect, not the axis-aligned one.
     const prevAngle = shape._rotDisplay?.angle ?? 0;
     const prevBBox  = shape._rotDisplay?.bbox  ?? this.getBBox(shape);
+
+    // Rotate the bbox's centre through the operation pivot to find the shape's
+    // new visual centre.  Storing centre = shape's own current centre (not the
+    // operation pivot) means subsequent individual operations always pivot on
+    // the shape itself, regardless of what collection centre was used here.
+    const prevCx = prevBBox.x + prevBBox.width  / 2;
+    const prevCy = prevBBox.y + prevBBox.height / 2;
+    const { x: newCx, y: newCy } = rotatePoint(prevCx, prevCy, cx, cy, angleDeg);
+
     shape._rotDisplay = {
-      bbox:   prevBBox,
-      center: { x: cx, y: cy },
+      bbox: {
+        x:      newCx - prevBBox.width  / 2,
+        y:      newCy - prevBBox.height / 2,
+        width:  prevBBox.width,
+        height: prevBBox.height,
+      },
+      center: { x: newCx, y: newCy },
       angle:  prevAngle + angleDeg,
     };
     shape.attrs.d = rotatePathD(shape.attrs.d ?? '', angleDeg, cx, cy);

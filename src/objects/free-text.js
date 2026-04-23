@@ -147,9 +147,30 @@ export class FreeTextObjectType extends ObjectType {
   }
 
   bakeRotation(shape, angleDeg, cx, cy) {
+    const prevAngle = shape._rotDisplay?.angle ?? 0;
+    const prevBBox  = shape._rotDisplay?.bbox  ?? this.getBBox({ ...shape, _rotation: 0 });
+
+    // For rendering, the pivot must stay at (cx, cy) because attrs.x/y encodes
+    // the original anchor — moving the pivot without moving the anchor shifts the
+    // text.  For the selection overlay, store the shape's own visual centre so
+    // individual selections/operations use the correct reference point.
+    const prevCx = prevBBox.x + prevBBox.width  / 2;
+    const prevCy = prevBBox.y + prevBBox.height / 2;
+    const { x: newCx, y: newCy } = rotatePoint(prevCx, prevCy, cx, cy, angleDeg);
+
     shape._rotation = (shape._rotation ?? 0) + angleDeg;
     shape._rotCx    = cx;
     shape._rotCy    = cy;
+    shape._rotDisplay = {
+      bbox: {
+        x:      newCx - prevBBox.width  / 2,
+        y:      newCy - prevBBox.height / 2,
+        width:  prevBBox.width,
+        height: prevBBox.height,
+      },
+      center: { x: newCx, y: newCy },
+      angle:  prevAngle + angleDeg,
+    };
   }
 
   toSVGString(shape, includeMetadata) {

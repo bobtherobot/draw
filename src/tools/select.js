@@ -256,14 +256,24 @@ export class SelectTool extends Tool {
         d = scalePathD(d, sx, sy, ox, oy);
         d = rotatePathD(d, angle, cx, cy);
         shape.attrs.d = d;
-        // Update _rotDisplay: same rotation angle and pivot, new scaled bbox.
-        const nx = ox + (bb.x - ox) * sx;
-        const ny = oy + (bb.y - oy) * sy;
-        shape._rotDisplay = {
-          bbox:   { x: nx, y: ny, width: bb.width * Math.abs(sx), height: bb.height * Math.abs(sy) },
-          center: { x: cx, y: cy },
-          angle,
-        };
+        // Update each shape's _rotDisplay from its OWN pre-rotation bbox (from
+        // the snapshot), not from the union bbox — so multi-selection scales
+        // update each shape's individual overlay independently.
+        const shapeBB = snap._rotDisplay?.bbox;
+        if (shapeBB) {
+          shape._rotDisplay = {
+            bbox: {
+              x:      ox + (shapeBB.x - ox) * sx,
+              y:      oy + (shapeBB.y - oy) * sy,
+              width:  shapeBB.width  * Math.abs(sx),
+              height: shapeBB.height * Math.abs(sy),
+            },
+            center: { x: cx, y: cy },
+            angle,
+          };
+        } else {
+          delete shape._rotDisplay;
+        }
       } else {
         ctx.getObjectType(shape.type)?.scale(shape, sx, sy, ox, oy);
       }
@@ -346,15 +356,10 @@ export class SelectTool extends Tool {
   _commitTransform() {
     const snapshots = new Map(this._snapshots);
     const ctx       = this._ctx;
-    const activeRot = ctx.state.activeRotation ? { ...ctx.state.activeRotation } : null;
     const postSnaps = new Map();
     for (const id of ctx.state.selection) {
       const shape = findItem(id);
-      if (shape) {
-        const snap = _cloneShape(shape);
-        if (activeRot) snap._rotDisplay = activeRot;
-        postSnaps.set(id, snap);
-      }
+      if (shape) postSnaps.set(id, _cloneShape(shape));
     }
     ctx.execute({
       do() {
@@ -524,19 +529,24 @@ export class SelectTool extends Tool {
 
 // ── Module-level helpers ─────────────────────────────────────────────────────
 
-// Returns the shared _rotDisplay if every shape in the selection has the same
-// rotation (same angle, same pivot), otherwise null.
+// Returns a _rotDisplay for the selection if every shape shares the same angle
+// and pivot. For multi-selection the bbox is the union of all individual
+// pre-rotation bboxes (so the overlay covers the whole collection, not just the
+// first shape).
 function _uniformRotDisplay(selectionSet) {
   const ids = [...selectionSet];
   if (!ids.length) return null;
   const first = findItem(ids[0])?._rotDisplay;
   if (!first) return null;
+  const bboxes = [first.bbox];
   for (const id of ids.slice(1)) {
     const rd = findItem(id)?._rotDisplay;
     if (!rd || rd.angle !== first.angle ||
         rd.center.x !== first.center.x || rd.center.y !== first.center.y) return null;
+    bboxes.push(rd.bbox);
   }
-  return first;
+  const union = unionBBoxes(bboxes);
+  return union ? { bbox: union, center: first.center, angle: first.angle } : null;
 }
 
 function _css(name) {

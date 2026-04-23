@@ -34,7 +34,9 @@
       "Bash(python3 *)",
       "Bash(git merge *)",
       "Bash(git stash *)",
-      "Bash(echo \"exit $?\")"
+      "Bash(echo \"exit $?\")",
+      "Bash(sed -n '44,55p' /home/bob/projects/draw/src/objects/group.js)",
+      "Bash(sed -n '119,130p' /home/bob/projects/draw/src/objects/text-block.js)"
     ]
   }
 }
