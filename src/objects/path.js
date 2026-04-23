@@ -120,6 +120,15 @@ export class PathObjectType extends ObjectType {
   }
 
   bakeRotation(shape, angleDeg, cx, cy) {
+    // Preserve the original pre-rotation bbox across consecutive bakes so the
+    // selection box always shows the tight rotated rect, not the axis-aligned one.
+    const prevAngle = shape._rotDisplay?.angle ?? 0;
+    const prevBBox  = shape._rotDisplay?.bbox  ?? this.getBBox(shape);
+    shape._rotDisplay = {
+      bbox:   prevBBox,
+      center: { x: cx, y: cy },
+      angle:  prevAngle + angleDeg,
+    };
     shape.attrs.d = rotatePathD(shape.attrs.d ?? '', angleDeg, cx, cy);
   }
 

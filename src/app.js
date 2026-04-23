@@ -35,9 +35,10 @@ export function buildApp() {
   canvasWrap.appendChild(canvas);
 
   // Set initial pixel dimensions synchronously so the first render is sharp.
+  const dpr = window.devicePixelRatio || 1;
   const initRect = canvasWrap.getBoundingClientRect();
-  canvas.width  = Math.round(initRect.width)  || 800;
-  canvas.height = Math.round(initRect.height) || 600;
+  canvas.width  = Math.round(initRect.width  * dpr) || 800;
+  canvas.height = Math.round(initRect.height * dpr) || 600;
 
   // ── Status bar ─────────────────────────────────────────────────────────────
   const statusbar = _el('div', 'statusbar');
@@ -51,8 +52,9 @@ export function buildApp() {
   // ── Resize → update canvas pixel dimensions, re-render ────────────────────
   new ResizeObserver(entries => {
     const { width, height } = entries[0].contentRect;
-    canvas.width  = Math.round(width)  || 1;
-    canvas.height = Math.round(height) || 1;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width  = Math.round(width  * dpr) || 1;
+    canvas.height = Math.round(height * dpr) || 1;
     invalidateRect();
     emit('resize');
   }).observe(canvasWrap);

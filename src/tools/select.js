@@ -5,6 +5,7 @@
 import { Tool } from './base.js';
 import { startEditing, isEditing } from '../textedit.js';
 import { unionBBoxes } from '../geometry/bbox.js';
+import { rotatePathD, scalePathD, rotatePoint } from '../geometry/transform.js';
 import { effectiveVisible, effectiveLocked, allDisplayItems, findItem, sanitizeItems } from '../core/state.js';
 import { hitTest } from '../core/hit-test.js';
 import { handleAtPoint } from '../render/selection.js';
@@ -25,10 +26,12 @@ export class SelectTool extends Tool {
     this._dragStart  = null;
     this._moved      = false;
     this._snapshots  = new Map(); // shapeId → attrs clone
-    this._bboxSnap   = null;     // selection bbox at drag start for scale
-    this._scaleHandle= null;
-    this._rotCenter  = null;
-    this._rotStart   = null;
+    this._bboxSnap        = null;  // selection bbox at drag start for scale
+    this._scaleHandle     = null;
+    this._scaleRotDisplay = null;  // _rotDisplay captured at scale-drag start
+    this._rotCenter       = null;
+    this._rotStart        = null;
+    this._initialAngle    = 0;     // accumulated rotation before current drag
     this._lastClickId= null;
     this._lastClickT = 0;
     this._bandLayer  = null;
@@ -208,22 +211,28 @@ export class SelectTool extends Tool {
       const shape = findItem(id);
       if (shape) this._snapshots.set(id, _cloneShape(shape));
     }
-    // Capture selection bbox at drag start
-    this._bboxSnap = this._selectionBBox();
+    // If the selection has a uniform rotation, scale in the shape's local frame.
+    this._scaleRotDisplay = _uniformRotDisplay(this._ctx.state.selection);
+    this._bboxSnap = this._scaleRotDisplay?.bbox ?? this._selectionBBox();
   }
 
   _doScale(pos, constrain) {
-    const ctx  = this._ctx;
-    const bb   = this._bboxSnap;
+    const ctx     = this._ctx;
+    const h       = this._scaleHandle;
+    const rotDisp = this._scaleRotDisplay;
+    const bb      = this._bboxSnap;
     if (!bb) return;
-    const h    = this._scaleHandle;
 
-    const newW = h.includes('e') ? pos.x - bb.x  : bb.x + bb.width  - pos.x;
-    const newH = h.includes('s') ? pos.y - bb.y  : bb.y + bb.height - pos.y;
+    // When scaling a rotated shape, work in the shape's local (unrotated) frame.
+    const localPos = rotDisp
+      ? rotatePoint(pos.x, pos.y, rotDisp.center.x, rotDisp.center.y, -rotDisp.angle)
+      : pos;
+
+    const newW = h.includes('e') ? localPos.x - bb.x  : bb.x + bb.width  - localPos.x;
+    const newH = h.includes('s') ? localPos.y - bb.y  : bb.y + bb.height - localPos.y;
 
     let sx = newW / bb.width  || 1;
     let sy = newH / bb.height || 1;
-    // Edge-only handles constrain one axis
     if (h === 'n' || h === 's') sx = 1;
     if (h === 'e' || h === 'w') sy = 1;
     const isCorner = h.length === 2;
@@ -238,7 +247,26 @@ export class SelectTool extends Tool {
       const snap = this._snapshots.get(id);
       if (!snap) continue;
       _restoreShape(shape, snap);
-      ctx.getObjectType(shape.type)?.scale(shape, sx, sy, ox, oy);
+
+      if (rotDisp && snap.attrs?.d != null) {
+        // Scale in local (rotated) frame: unrotate → scale → re-rotate.
+        const { center: { x: cx, y: cy }, angle } = rotDisp;
+        let d = snap.attrs.d ?? '';
+        d = rotatePathD(d, -angle, cx, cy);
+        d = scalePathD(d, sx, sy, ox, oy);
+        d = rotatePathD(d, angle, cx, cy);
+        shape.attrs.d = d;
+        // Update _rotDisplay: same rotation angle and pivot, new scaled bbox.
+        const nx = ox + (bb.x - ox) * sx;
+        const ny = oy + (bb.y - oy) * sy;
+        shape._rotDisplay = {
+          bbox:   { x: nx, y: ny, width: bb.width * Math.abs(sx), height: bb.height * Math.abs(sy) },
+          center: { x: cx, y: cy },
+          angle,
+        };
+      } else {
+        ctx.getObjectType(shape.type)?.scale(shape, sx, sy, ox, oy);
+      }
     }
   }
 
@@ -252,11 +280,23 @@ export class SelectTool extends Tool {
       const shape = findItem(id);
       if (shape) this._snapshots.set(id, _cloneShape(shape));
     }
-    const bb = this._selectionBBox();
-    if (bb) {
-      this._rotCenter = { x: bb.x + bb.width / 2, y: bb.y + bb.height / 2 };
-      this._rotStart  = Math.atan2(this._dragStart.y - this._rotCenter.y, this._dragStart.x - this._rotCenter.x) * 180 / Math.PI;
-      this._ctx.state.activeRotation = { bbox: bb, center: this._rotCenter, angle: 0 };
+    // If the selection already has a rotation, start from that state so the
+    // overlay doesn't snap back to the axis-aligned box on handle grab.
+    const rotDisp = _uniformRotDisplay(this._ctx.state.selection);
+    if (rotDisp) {
+      this._rotCenter    = rotDisp.center;
+      this._initialAngle = rotDisp.angle;
+      this._ctx.state.activeRotation = { bbox: rotDisp.bbox, center: rotDisp.center, angle: rotDisp.angle };
+    } else {
+      const bb = this._selectionBBox();
+      if (bb) {
+        this._rotCenter = { x: bb.x + bb.width / 2, y: bb.y + bb.height / 2 };
+        this._ctx.state.activeRotation = { bbox: bb, center: this._rotCenter, angle: 0 };
+      }
+      this._initialAngle = 0;
+    }
+    if (this._rotCenter) {
+      this._rotStart = Math.atan2(this._dragStart.y - this._rotCenter.y, this._dragStart.x - this._rotCenter.x) * 180 / Math.PI;
     }
   }
 
@@ -265,7 +305,8 @@ export class SelectTool extends Tool {
     const angle = Math.atan2(pos.y - this._rotCenter.y, pos.x - this._rotCenter.x) * 180 / Math.PI;
     let   delta = angle - this._rotStart;
     if (doSnap) delta = Math.round(delta / 15) * 15;
-    if (this._ctx.state.activeRotation) this._ctx.state.activeRotation.angle = delta;
+    // activeRotation.angle is the TOTAL accumulated angle, not just this drag's delta.
+    if (this._ctx.state.activeRotation) this._ctx.state.activeRotation.angle = this._initialAngle + delta;
     for (const id of this._ctx.state.selection) {
       const shape = findItem(id);
       if (!shape) continue;
@@ -468,10 +509,12 @@ export class SelectTool extends Tool {
       this._bandEnd   = null;
     }
     this._snapshots.clear();
-    this._bboxSnap    = null;
-    this._scaleHandle = null;
-    this._rotCenter   = null;
-    this._rotStart    = null;
+    this._bboxSnap        = null;
+    this._scaleHandle     = null;
+    this._scaleRotDisplay = null;
+    this._rotCenter       = null;
+    this._rotStart        = null;
+    this._initialAngle    = 0;
     if (this._ctx) {
       this._ctx.state.operation     = null;
       this._ctx.state.activeRotation = null;
@@ -480,6 +523,21 @@ export class SelectTool extends Tool {
 }
 
 // ── Module-level helpers ─────────────────────────────────────────────────────
+
+// Returns the shared _rotDisplay if every shape in the selection has the same
+// rotation (same angle, same pivot), otherwise null.
+function _uniformRotDisplay(selectionSet) {
+  const ids = [...selectionSet];
+  if (!ids.length) return null;
+  const first = findItem(ids[0])?._rotDisplay;
+  if (!first) return null;
+  for (const id of ids.slice(1)) {
+    const rd = findItem(id)?._rotDisplay;
+    if (!rd || rd.angle !== first.angle ||
+        rd.center.x !== first.center.x || rd.center.y !== first.center.y) return null;
+  }
+  return first;
+}
 
 function _css(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
