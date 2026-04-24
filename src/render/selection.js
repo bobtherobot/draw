@@ -13,12 +13,16 @@ import { getEditingShapeId } from '../textedit.js';
 import { getCanvasRect }     from '../viewport.js';
 import { getCK }             from './renderer.js';
 
-const HANDLE_SIZE  = 6;   // CSS px side length of scale handle squares
-const ROTATE_DIST  = 20;  // CSS px above top-center handle
-const ROTATE_SIZE  = 5;   // CSS px radius of rotate dot
-const HIT_PAD      = 3;   // CSS px added to handle hit areas
-const ORIGIN_ARM   = 6;   // CSS px half-length of plus-sign arms
-const ORIGIN_HIT_R = 9;   // CSS px hit radius for origin handle
+const HANDLE_SIZE      = 6;   // CSS px side length of scale handle squares
+const HIT_PAD          = 3;   // CSS px added to handle hit areas
+const ORIGIN_ARM       = 6;   // CSS px half-length of plus-sign arms
+const ORIGIN_HIT_R     = 9;   // CSS px hit radius for origin handle
+const ROTATE_BUFFER    = 5;   // CSS px gap between scale handle edge and rotate zone
+const ROTATE_ZONE_OUT  = 20;  // CSS px outer reach of corner rotate zone from corner center
+const ROTATE_INNER     = HANDLE_SIZE / 2 + HIT_PAD + ROTATE_BUFFER; // 11 px — inner boundary
+
+const _ROTATE_CORNER_NAMES = ['nw', 'ne', 'se', 'sw'];
+const _ROTATE_CORNER_IDX   = [0, 2, 4, 6]; // indices into _pts() for corners
 
 // Handle hit-areas registered each frame. Positions in CSS px.
 // Shape: { part, x, y, w, h } for squares  |  { part, x, y, r } for circles
@@ -38,7 +42,15 @@ export function handleAtPoint(screenX, screenY) {
     if (h.r !== undefined) {
       if (Math.hypot(cx - h.x, cy - h.y) <= h.r) return { part: h.part };
     } else {
-      if (cx >= h.x && cx <= h.x + h.w && cy >= h.y && cy <= h.y + h.h) return { part: h.part };
+      if (cx >= h.x && cx <= h.x + h.w && cy >= h.y && cy <= h.y + h.h) {
+        // Rotate zones: enforce inner buffer (must be outside scale handle + gap)
+        // and reject the inward quadrant (inside the selection box).
+        if (h.ix !== undefined) {
+          if (Math.max(Math.abs(cx - h.pcx), Math.abs(cy - h.pcy)) <= ROTATE_INNER) continue;
+          if ((cx - h.pcx) * h.ix > 0 && (cy - h.pcy) * h.iy > 0) continue;
+        }
+        return { part: h.part };
+      }
     }
   }
   return null;
@@ -177,8 +189,6 @@ function _drawBox(ckCanvas, CK, bx, by, bw, bh, accent, dpr) {
 
 function _drawHandleVisuals(ckCanvas, CK, bx, by, bw, bh, dpr, accent, bg) {
   const hs = HANDLE_SIZE * dpr;
-  const rd = ROTATE_DIST * dpr;
-  const rs = ROTATE_SIZE * dpr;
   const hh = hs / 2;
 
   const fillPaint = new CK.Paint();
@@ -197,25 +207,6 @@ function _drawHandleVisuals(ckCanvas, CK, bx, by, bw, bh, dpr, accent, bg) {
     ckCanvas.drawRect(r, strPaint);
   }
 
-  // Rotate stem
-  const stemX = bx + bw / 2;
-  const stemPaint = new CK.Paint();
-  stemPaint.setStyle(CK.PaintStyle.Stroke);
-  stemPaint.setColor(CK.parseColorString(accent));
-  stemPaint.setStrokeWidth(dpr);
-  stemPaint.setAntiAlias(false);
-  const stemPath = CK.Path.MakeFromSVGString(`M ${stemX} ${by} L ${stemX} ${by - rd}`);
-  if (stemPath) { ckCanvas.drawPath(stemPath, stemPaint); stemPath.delete(); }
-  stemPaint.delete();
-
-  // Rotate dot
-  const dotPaint = new CK.Paint();
-  dotPaint.setStyle(CK.PaintStyle.Fill);
-  dotPaint.setColor(CK.parseColorString(accent));
-  dotPaint.setAntiAlias(true);
-  ckCanvas.drawCircle(stemX, by - rd, rs, dotPaint);
-  dotPaint.delete();
-
   fillPaint.delete();
   strPaint.delete();
 }
@@ -223,8 +214,6 @@ function _drawHandleVisuals(ckCanvas, CK, bx, by, bw, bh, dpr, accent, bg) {
 function _registerHandles(bx, by, bw, bh, rot) {
   // All inputs and outputs in CSS pixels — compared against clientX/Y in handleAtPoint.
   const hs  = HANDLE_SIZE;
-  const rd  = ROTATE_DIST;
-  const rs  = ROTATE_SIZE;
   const pad = HIT_PAD;
   const hh  = hs / 2;
 
@@ -234,9 +223,25 @@ function _registerHandles(bx, by, bw, bh, rot) {
     const p = rot ? _rotPt(pts[i].x, pts[i].y, rot) : pts[i];
     _handles.push({ part: ids[i], x: p.x - hh - pad, y: p.y - hh - pad, w: hs + pad * 2, h: hs + pad * 2 });
   }
-  const stemX   = bx + bw / 2;
-  const stemEnd = rot ? _rotPt(stemX, by - rd, rot) : { x: stemX, y: by - rd };
-  _handles.push({ part: 'rotate', x: stemEnd.x, y: stemEnd.y, r: rs + pad });
+  // Invisible rotate zones at the 4 corners, registered after scale handles so
+  // scale handles take priority when the mouse is dead-on the corner.
+  // Each handle stores the corner position (pcx/pcy) and the inward direction
+  // (ix/iy = sign of vector from corner toward selection center) so handleAtPoint
+  // can reject hits that fall inside the selection box.
+  const rz = ROTATE_ZONE_OUT + pad;
+  const selCx = rot ? _rotPt(bx + bw / 2, by + bh / 2, rot).x : bx + bw / 2;
+  const selCy = rot ? _rotPt(bx + bw / 2, by + bh / 2, rot).y : by + bh / 2;
+  for (let i = 0; i < 4; i++) {
+    const p = rot ? _rotPt(pts[_ROTATE_CORNER_IDX[i]].x, pts[_ROTATE_CORNER_IDX[i]].y, rot)
+                  : pts[_ROTATE_CORNER_IDX[i]];
+    _handles.push({
+      part: `rotate-${_ROTATE_CORNER_NAMES[i]}`,
+      x: p.x - rz, y: p.y - rz, w: rz * 2, h: rz * 2,
+      pcx: p.x, pcy: p.y,
+      ix: Math.sign(selCx - p.x),
+      iy: Math.sign(selCy - p.y),
+    });
+  }
 }
 
 function _pts(bx, by, bw, bh) {

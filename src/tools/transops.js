@@ -37,7 +37,7 @@ export class TransformController {
    */
   enter(handlePart, dragStart) {
     this._dragStart = dragStart;
-    if (handlePart === 'rotate')              { this._enterRotate();            return this._mode; }
+    if (handlePart === 'rotate' || handlePart.startsWith('rotate-')) { this._enterRotate(); return this._mode; }
     if (handlePart === 'origin')              { this._enterMoveOrigin();        return this._mode; }
     if (SCALE_HANDLES.includes(handlePart))  { this._enterScale(handlePart);   return this._mode; }
     return null;

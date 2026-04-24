@@ -22,9 +22,11 @@ const DBL_CLICK_MS  = 400;
 const _BASE_AXIS = { nw: 45, n: 90, ne: 135, e: 0, se: 45, s: 90, sw: 135, w: 0 };
 // Bidirectional resize cursors indexed by axis angle / 45.
 const _RESIZE_CURSORS = ['ew-resize', 'nwse-resize', 'ns-resize', 'nesw-resize'];
-
 function _handleCursor(part, rotAngle, active) {
-  if (part === 'rotate') return active ? 'grabbing' : 'grab';
+  if (part.startsWith('rotate-')) {
+    if (active) return 'grabbing';
+    return 'var(--cursor-rotate, crosshair)';
+  }
   if (part === 'origin') return 'move';
   const base = _BASE_AXIS[part] ?? 0;
   const eff  = ((base + rotAngle) % 180 + 180) % 180;
