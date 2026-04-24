@@ -1,6 +1,9 @@
 /**
  * Select tool — click-select, rubber-band, move, scale handles, rotate handle.
  * Text shapes: double-click to edit.
+ *
+ * Transform operations (scale, rotate, move-origin) are delegated to
+ * TransformController in transops.js.
  */
 import { Tool } from './base.js';
 import { startEditing, isEditing } from '../textedit.js';
@@ -10,9 +13,25 @@ import { hitTest } from '../core/hit-test.js';
 import { handleAtPoint } from '../render/selection.js';
 import { applyTransform } from '../viewport.js';
 import { getCK } from '../render/renderer.js';
+import { TransformController } from './transops.js';
+import { cloneShape, restoreShape } from './snapshots.js';
 
-const SCALE_HANDLES = ['nw','n','ne','e','se','s','sw','w'];
 const DBL_CLICK_MS  = 400;
+
+// Scale handle axis angles (degrees, screen-space where y-down) before rotation.
+const _BASE_AXIS = { nw: 45, n: 90, ne: 135, e: 0, se: 45, s: 90, sw: 135, w: 0 };
+// Bidirectional resize cursors indexed by axis angle / 45.
+const _RESIZE_CURSORS = ['ew-resize', 'nwse-resize', 'ns-resize', 'nesw-resize'];
+function _handleCursor(part, rotAngle, active) {
+  if (part.startsWith('rotate-')) {
+    if (active) return 'grabbing';
+    return 'var(--cursor-rotate, crosshair)';
+  }
+  if (part === 'origin') return 'move';
+  const base = _BASE_AXIS[part] ?? 0;
+  const eff  = ((base + rotAngle) % 180 + 180) % 180;
+  return _RESIZE_CURSORS[Math.round(eff / 45) % 4];
+}
 
 export class SelectTool extends Tool {
   get id()       { return 'select'; }
@@ -20,25 +39,28 @@ export class SelectTool extends Tool {
   get shortcut() { return 'v'; }
   get icon()     { return 'select'; }
 
+  init(ctx) { super.init(ctx); this._transops = new TransformController(ctx); }
+
   activate() {
-    this._mode       = 'idle'; // 'idle'|'move'|'band'|'scale'|'rotate'
+    this._mode       = 'idle'; // 'idle'|'move'|'band'|'transop'
     this._dragStart  = null;
     this._moved      = false;
     this._snapshots  = new Map(); // shapeId → attrs clone
-    this._bboxSnap   = null;     // selection bbox at drag start for scale
-    this._scaleHandle= null;
-    this._rotCenter  = null;
-    this._rotStart   = null;
+    this._selRotSnap    = null;  // selectionRotation snapshot at move-drag start
+    this._selOriginSnap = null;  // selectionOrigin snapshot at move-drag start
     this._lastClickId= null;
     this._lastClickT = 0;
     this._bandLayer  = null;
     this._bandStart  = null;
     this._bandEnd    = null;
+    this._canvasWrap = document.querySelector('.canvas-wrap');
     if (this._ctx) this._ctx.render();
   }
 
   deactivate() {
     if (isEditing()) return; // let textarea commit naturally
+    if (this._ctx) this._ctx.state.selectionRotation = null;
+    this._clearHandleCursor();
     this._cleanup();
   }
 
@@ -54,11 +76,14 @@ export class SelectTool extends Tool {
     this._dragStart = pos;
     this._moved     = false;
 
-    // Scale / rotate handles
+    // Scale / rotate / origin handles — delegate to TransformController
     if (handle && ctx.state.selection.size > 0) {
       this._lastClickId = null;
-      if (handle.part === 'rotate') { this._enterRotate(); return; }
-      if (SCALE_HANDLES.includes(handle.part)) { this._enterScale(handle.part); return; }
+      if (this._transops.enter(handle.part, pos)) {
+        this._mode = 'transop';
+        this._setHandleCursor(handle.part, true);
+        return;
+      }
     }
 
     // Hit-test shapes
@@ -77,17 +102,27 @@ export class SelectTool extends Tool {
     this._lastClickT  = now;
     if (hitId) {
       if (!e.shiftKey && !ctx.state.selection.has(hitId)) {
+        // Switching to a different shape — new selection, discard session state.
+        ctx.state.selectionOrigin   = null;
+        ctx.state.selectionRotation = null;
         ctx.state.selection = new Set([hitId]);
       } else if (e.shiftKey) {
+        // Modifying selection — discard session state.
+        ctx.state.selectionOrigin   = null;
+        ctx.state.selectionRotation = null;
         const sel = new Set(ctx.state.selection);
         if (sel.has(hitId)) sel.delete(hitId); else sel.add(hitId);
         ctx.state.selection = sel;
       }
+      // else: clicking an already-selected shape to move — keep session state.
       this._mode = 'move';
       ctx.state.operation = 'move';
       this._snapshotMove();
       ctx.render();
     } else {
+      // Clicking empty space — discard session state.
+      ctx.state.selectionOrigin   = null;
+      ctx.state.selectionRotation = null;
       if (!e.shiftKey) ctx.state.selection = new Set();
       this._mode      = 'band';
       ctx.state.operation = 'band';
@@ -100,7 +135,11 @@ export class SelectTool extends Tool {
   }
 
   onMouseMove(e) {
-    if (this._mode === 'idle') return;
+    if (this._mode === 'idle') {
+      const handle = handleAtPoint(e.clientX, e.clientY);
+      this._setHandleCursor(handle?.part ?? null);
+      return;
+    }
     const ctx = this._ctx;
     const pos = ctx.screenToDoc(e.clientX, e.clientY);
     const dx  = pos.x - this._dragStart.x;
@@ -115,18 +154,27 @@ export class SelectTool extends Tool {
         if (!snap) continue;
         const ot = ctx.getObjectType(shape.type);
         if (!ot) continue;
-        _restoreShape(shape, snap);
+        restoreShape(shape, snap);
         ot.translate(shape, dx, dy);
+        if (snap._origin) shape._origin = { x: snap._origin.x + dx, y: snap._origin.y + dy };
+      }
+      if (this._selRotSnap) {
+        const s = this._selRotSnap;
+        ctx.state.selectionRotation = {
+          bbox:   { x: s.bbox.x + dx, y: s.bbox.y + dy, width: s.bbox.width, height: s.bbox.height },
+          center: { x: s.center.x + dx, y: s.center.y + dy },
+          angle:  s.angle,
+        };
+      }
+      if (this._selOriginSnap) {
+        ctx.state.selectionOrigin = { x: this._selOriginSnap.x + dx, y: this._selOriginSnap.y + dy };
       }
       ctx.render();
     } else if (this._mode === 'band') {
       this._bandEnd = pos;
       ctx.render();
-    } else if (this._mode === 'scale') {
-      this._doScale(pos, e.shiftKey);
-      ctx.render();
-    } else if (this._mode === 'rotate') {
-      this._doRotate(pos, e.shiftKey);
+    } else if (this._mode === 'transop') {
+      this._transops.update(pos, e.shiftKey);
       ctx.render();
     }
   }
@@ -141,20 +189,20 @@ export class SelectTool extends Tool {
       const postSnaps = new Map();
       for (const id of ctx.state.selection) {
         const shape = findItem(id);
-        if (shape) postSnaps.set(id, _cloneShape(shape));
+        if (shape) postSnaps.set(id, cloneShape(shape));
       }
       ctx.execute({
         do() {
           for (const [id, snap] of postSnaps) {
             const shape = findItem(id);
-            if (shape) _restoreShape(shape, snap);
+            if (shape) restoreShape(shape, snap);
           }
           ctx.render();
         },
         undo() {
           for (const [id, snap] of snapshots) {
             const shape = findItem(id);
-            if (shape) _restoreShape(shape, snap);
+            if (shape) restoreShape(shape, snap);
           }
           ctx.render();
         },
@@ -163,8 +211,8 @@ export class SelectTool extends Tool {
       // Simple click — no move, selection already set on mousedown
     } else if (this._mode === 'band') {
       this._commitBand(pos, e.shiftKey);
-    } else if (this._mode === 'scale' || this._mode === 'rotate') {
-      this._commitTransform();
+    } else if (this._mode === 'transop') {
+      this._transops.commit(this._moved);
     }
 
     this._cleanup();
@@ -178,7 +226,9 @@ export class SelectTool extends Tool {
 
   onKeyDown(e) {
     if (e.key === 'Escape') {
-      this._ctx.state.selection = new Set();
+      this._ctx.state.selection        = new Set();
+      this._ctx.state.selectionOrigin  = null;
+      this._ctx.state.selectionRotation = null;
       this._cleanup();
       this._ctx.render();
     }
@@ -193,87 +243,14 @@ export class SelectTool extends Tool {
     this._snapshots.clear();
     for (const id of this._ctx.state.selection) {
       const shape = findItem(id);
-      if (shape) this._snapshots.set(id, _cloneShape(shape));
+      if (shape) this._snapshots.set(id, cloneShape(shape));
     }
-  }
-
-  // ── Scale ───────────────────────────────────────────────────────────────────
-
-  _enterScale(handle) {
-    this._mode        = 'scale';
-    this._ctx.state.operation = `scale:${handle}`;
-    this._scaleHandle = handle;
-    this._snapshots.clear();
-    for (const id of this._ctx.state.selection) {
-      const shape = findItem(id);
-      if (shape) this._snapshots.set(id, _cloneShape(shape));
-    }
-    // Capture selection bbox at drag start
-    this._bboxSnap = this._selectionBBox();
-  }
-
-  _doScale(pos, constrain) {
-    const ctx  = this._ctx;
-    const bb   = this._bboxSnap;
-    if (!bb) return;
-    const h    = this._scaleHandle;
-
-    const newW = h.includes('e') ? pos.x - bb.x  : bb.x + bb.width  - pos.x;
-    const newH = h.includes('s') ? pos.y - bb.y  : bb.y + bb.height - pos.y;
-
-    let sx = newW / bb.width  || 1;
-    let sy = newH / bb.height || 1;
-    // Edge-only handles constrain one axis
-    if (h === 'n' || h === 's') sx = 1;
-    if (h === 'e' || h === 'w') sy = 1;
-    const isCorner = h.length === 2;
-    if (constrain && isCorner) { const s = Math.min(Math.abs(sx), Math.abs(sy)); sx = sx < 0 ? -s : s; sy = sy < 0 ? -s : s; }
-
-    const ox = h.includes('w') ? bb.x + bb.width  : bb.x;
-    const oy = h.includes('n') ? bb.y + bb.height : bb.y;
-
-    for (const id of ctx.state.selection) {
-      const shape = findItem(id);
-      if (!shape) continue;
-      const snap = this._snapshots.get(id);
-      if (!snap) continue;
-      _restoreShape(shape, snap);
-      ctx.getObjectType(shape.type)?.scale(shape, sx, sy, ox, oy);
-    }
-  }
-
-  // ── Rotate ──────────────────────────────────────────────────────────────────
-
-  _enterRotate() {
-    this._mode    = 'rotate';
-    this._ctx.state.operation = 'rotate';
-    this._snapshots.clear();
-    for (const id of this._ctx.state.selection) {
-      const shape = findItem(id);
-      if (shape) this._snapshots.set(id, _cloneShape(shape));
-    }
-    const bb = this._selectionBBox();
-    if (bb) {
-      this._rotCenter = { x: bb.x + bb.width / 2, y: bb.y + bb.height / 2 };
-      this._rotStart  = Math.atan2(this._dragStart.y - this._rotCenter.y, this._dragStart.x - this._rotCenter.x) * 180 / Math.PI;
-      this._ctx.state.activeRotation = { bbox: bb, center: this._rotCenter, angle: 0 };
-    }
-  }
-
-  _doRotate(pos, doSnap) {
-    if (!this._rotCenter) return;
-    const angle = Math.atan2(pos.y - this._rotCenter.y, pos.x - this._rotCenter.x) * 180 / Math.PI;
-    let   delta = angle - this._rotStart;
-    if (doSnap) delta = Math.round(delta / 15) * 15;
-    if (this._ctx.state.activeRotation) this._ctx.state.activeRotation.angle = delta;
-    for (const id of this._ctx.state.selection) {
-      const shape = findItem(id);
-      if (!shape) continue;
-      const shapeSnap = this._snapshots.get(id);
-      if (!shapeSnap) continue;
-      _restoreShape(shape, shapeSnap);
-      this._ctx.getObjectType(shape.type)?.bakeRotation(shape, delta, this._rotCenter.x, this._rotCenter.y);
-    }
+    const sr = this._ctx.state.selectionRotation;
+    this._selRotSnap = sr
+      ? { bbox: { ...sr.bbox }, center: { ...sr.center }, angle: sr.angle }
+      : null;
+    const so = this._ctx.state.selectionOrigin;
+    this._selOriginSnap = so ? { x: so.x, y: so.y } : null;
   }
 
   // ── Rubber band ─────────────────────────────────────────────────────────────
@@ -297,47 +274,15 @@ export class SelectTool extends Tool {
         sel.add(shape.id);
       }
     }
-    ctx.state.selection = sel;
-  }
-
-  // ── Commit transform ─────────────────────────────────────────────────────────
-
-  _commitTransform() {
-    const snapshots = new Map(this._snapshots);
-    const ctx       = this._ctx;
-    const activeRot = ctx.state.activeRotation ? { ...ctx.state.activeRotation } : null;
-    const postSnaps = new Map();
-    for (const id of ctx.state.selection) {
-      const shape = findItem(id);
-      if (shape) {
-        const snap = _cloneShape(shape);
-        if (activeRot) snap._rotDisplay = activeRot;
-        postSnaps.set(id, snap);
-      }
-    }
-    ctx.execute({
-      do() {
-        for (const [id, snap] of postSnaps) {
-          const shape = findItem(id);
-          if (shape) _restoreShape(shape, snap);
-        }
-        ctx.render();
-      },
-      undo() {
-        for (const [id, snap] of snapshots) {
-          const shape = findItem(id);
-          if (shape) _restoreShape(shape, snap);
-        }
-        ctx.render();
-      },
-    });
+    ctx.state.selection        = sel;
+    ctx.state.selectionRotation = null;
   }
 
   // ── Text editing ─────────────────────────────────────────────────────────────
 
   _openTextEditor(shape, shapeId) {
     const ctx  = this._ctx;
-    const snap = _cloneShape(shape);
+    const snap = cloneShape(shape);
     startEditing({
       docX:        shape.attrs.x,
       docY:        shape.attrs.y,
@@ -363,13 +308,13 @@ export class SelectTool extends Tool {
         const s = findItem(shapeId);
         if (s) s._text = snap._text;
         ctx.execute({
-          do()   { const s = findItem(shapeId); if (s) { s._text = text; ctx.render(); } },
-          undo() { const s = findItem(shapeId); if (s) { _restoreShape(s, snap); ctx.render(); } },
+          do()   { const s = findItem(shapeId); if (s) { s._text = text; ctx.getObjectType(s.type)?.syncRotDisplay?.(s); ctx.render(); } },
+          undo() { const s = findItem(shapeId); if (s) { restoreShape(s, snap); ctx.render(); } },
         });
       },
       onCancel: () => {
         const s = findItem(shapeId);
-        if (s) { _restoreShape(s, snap); ctx.render(); }
+        if (s) { restoreShape(s, snap); ctx.render(); }
       },
     });
     ctx.render(); // hide SVG shape immediately, show textarea
@@ -389,9 +334,10 @@ export class SelectTool extends Tool {
 
     ctx.execute({
       do() {
-        ctx.state.items = ctx.state.items.filter(i => !ids.includes(i.id));
+        ctx.state.items             = ctx.state.items.filter(i => !ids.includes(i.id));
         sanitizeItems(ctx.state.items);
-        ctx.state.selection = new Set();
+        ctx.state.selection          = new Set();
+        ctx.state.selectionRotation  = null;
         ctx.render();
       },
       undo() {
@@ -410,19 +356,6 @@ export class SelectTool extends Tool {
     if (!hit || hit.isHandle || !hit.shape) return null;
     if (effectiveLocked(hit.shape)) return null;
     return hit.shape.id;
-  }
-
-  _selectionBBox() {
-    const ctx = this._ctx;
-    const bbs = [];
-    for (const id of ctx.state.selection) {
-      const shape = findItem(id);
-      if (!shape) continue;
-      const ot = ctx.getObjectType(shape.type);
-      const bb = ot?.getBBox(shape);
-      if (bb) bbs.push(bb);
-    }
-    return unionBBoxes(bbs);
   }
 
   _drawBand(ckCanvas) {
@@ -468,14 +401,32 @@ export class SelectTool extends Tool {
       this._bandEnd   = null;
     }
     this._snapshots.clear();
-    this._bboxSnap    = null;
-    this._scaleHandle = null;
-    this._rotCenter   = null;
-    this._rotStart    = null;
-    if (this._ctx) {
-      this._ctx.state.operation     = null;
-      this._ctx.state.activeRotation = null;
+    this._selRotSnap    = null;
+    this._selOriginSnap = null;
+    this._transops.reset();
+    this._clearHandleCursor();
+  }
+
+  _setHandleCursor(part, active = false) {
+    if (!this._canvasWrap) return;
+    this._canvasWrap.style.cursor = part
+      ? _handleCursor(part, this._getSelectionAngle(), active)
+      : '';
+  }
+
+  _clearHandleCursor() {
+    if (this._canvasWrap) this._canvasWrap.style.cursor = '';
+  }
+
+  _getSelectionAngle() {
+    const { state } = this._ctx;
+    if (state.activeRotation)    return state.activeRotation.angle;
+    if (state.selectionRotation) return state.selectionRotation.angle;
+    if (state.selection.size === 1) {
+      const shape = findItem([...state.selection][0]);
+      return shape?._rotDisplay?.angle ?? 0;
     }
+    return 0;
   }
 }
 
@@ -483,22 +434,4 @@ export class SelectTool extends Tool {
 
 function _css(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-}
-
-function _cloneShape(shape) {
-  return {
-    ...shape,
-    attrs: { ...shape.attrs },
-    style: { ...shape.style },
-  };
-}
-
-function _restoreShape(shape, snap) {
-  Object.assign(shape.attrs, snap.attrs);
-  Object.assign(shape.style, snap.style);
-  for (const k of ['_text','_fontSize','_fontFamily','_textAlign','_boxWidth','_boxHeight',
-                   '_scaleX','_scaleY','_rotation','_rotCx','_rotCy','_rotDisplay']) {
-    if (k in snap) shape[k] = snap[k];
-    else delete shape[k];
-  }
 }

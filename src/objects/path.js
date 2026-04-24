@@ -1,7 +1,7 @@
 import { ObjectType } from './base.js';
 import { nextId } from '../core/state.js';
 import { parsePathD, buildPathD } from '../geometry/path-utils.js';
-import { translatePathD, scalePathD, rotatePathD } from '../geometry/transform.js';
+import { translatePathD, scalePathD, rotatePathD, rotatePoint } from '../geometry/transform.js';
 import { getCK } from '../render/renderer.js';
 
 const HIT_TOLERANCE = 4; // px in doc space (scaled by zoom below)
@@ -10,6 +10,19 @@ export class PathObjectType extends ObjectType {
   get id()    { return 'path'; }
   get label() { return 'Path'; }
   get icon()  { return 'object-path'; }
+
+  createShape(initAttrs, initStyle) {
+    const shape = super.createShape(initAttrs, initStyle);
+    const bb = this.getBBox(shape);
+    if (bb && (bb.width > 0 || bb.height > 0)) {
+      shape._rotDisplay = {
+        bbox:   bb,
+        center: { x: bb.x + bb.width / 2, y: bb.y + bb.height / 2 },
+        angle:  0,
+      };
+    }
+    return shape;
+  }
 
   draw(ckCanvas, shape, viewState) {
     const CK  = getCK();
@@ -47,11 +60,33 @@ export class PathObjectType extends ObjectType {
   getBBox(shape) {
     const segs = parsePathD(shape.attrs.d ?? '');
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    const expand = (x, y) => {
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (y < minY) minY = y; if (y > maxY) maxY = y;
+    };
+    let cx = 0, cy = 0;
     for (const { cmd, args } of segs) {
-      const pairs = _coordPairs(cmd, args);
-      for (const [x, y] of pairs) {
-        if (x < minX) minX = x; if (x > maxX) maxX = x;
-        if (y < minY) minY = y; if (y > maxY) maxY = y;
+      switch (cmd) {
+        case 'M':
+          cx = args[0]; cy = args[1];
+          expand(cx, cy);
+          break;
+        case 'L':
+          cx = args[0]; cy = args[1];
+          expand(cx, cy);
+          break;
+        case 'C': {
+          const [x1, y1, x2, y2, x3, y3] = args;
+          expand(cx, cy);
+          expand(x3, y3);
+          // Find t values where derivative = 0 for accurate curve bounds
+          for (const t of _cubicExtrema(cx, x1, x2, x3))
+            expand(_cubicAt(t, cx, x1, x2, x3), _cubicAt(t, cy, y1, y2, y3));
+          for (const t of _cubicExtrema(cy, y1, y2, y3))
+            expand(_cubicAt(t, cx, x1, x2, x3), _cubicAt(t, cy, y1, y2, y3));
+          cx = x3; cy = y3;
+          break;
+        }
       }
     }
     if (!isFinite(minX)) return { x: 0, y: 0, width: 0, height: 0 };
@@ -120,6 +155,27 @@ export class PathObjectType extends ObjectType {
   }
 
   bakeRotation(shape, angleDeg, cx, cy) {
+    const prevAngle = shape._rotDisplay?.angle ?? 0;
+    const prevBBox  = shape._rotDisplay?.bbox  ?? this.getBBox(shape);
+
+    // Rotate the bbox's centre through the operation pivot to find the shape's
+    // new visual centre.  Storing centre = shape's own current centre (not the
+    // operation pivot) means subsequent individual operations always pivot on
+    // the shape itself, regardless of what collection centre was used here.
+    const prevCx = prevBBox.x + prevBBox.width  / 2;
+    const prevCy = prevBBox.y + prevBBox.height / 2;
+    const { x: newCx, y: newCy } = rotatePoint(prevCx, prevCy, cx, cy, angleDeg);
+
+    shape._rotDisplay = {
+      bbox: {
+        x:      newCx - prevBBox.width  / 2,
+        y:      newCy - prevBBox.height / 2,
+        width:  prevBBox.width,
+        height: prevBBox.height,
+      },
+      center: { x: newCx, y: newCy },
+      angle:  prevAngle + angleDeg,
+    };
     shape.attrs.d = rotatePathD(shape.attrs.d ?? '', angleDeg, cx, cy);
   }
 
@@ -167,11 +223,27 @@ function _replayPath2D(ctx, segs) {
   }
 }
 
-// Helper: extract endpoint pairs from a path command
-function _coordPairs(cmd, args) {
-  switch (cmd) {
-    case 'M': case 'L': return [[args[0], args[1]]];
-    case 'C': return [[args[0],args[1]], [args[2],args[3]], [args[4],args[5]]];
-    default:  return [];
+// Returns t values in (0,1) where the cubic bezier derivative is 0 along one axis
+function _cubicExtrema(p0, p1, p2, p3) {
+  const a = -p0 + 3*p1 - 3*p2 + p3;
+  const b = 2*(p0 - 2*p1 + p2);
+  const c = p1 - p0;
+  const ts = [];
+  if (Math.abs(a) < 1e-10) {
+    if (Math.abs(b) > 1e-10) { const t = -c / b; if (t > 0 && t < 1) ts.push(t); }
+  } else {
+    const disc = b*b - 4*a*c;
+    if (disc >= 0) {
+      const sq = Math.sqrt(disc);
+      for (const t of [(-b + sq) / (2*a), (-b - sq) / (2*a)])
+        if (t > 0 && t < 1) ts.push(t);
+    }
   }
+  return ts;
+}
+
+// Evaluate cubic bezier at t along one axis
+function _cubicAt(t, p0, p1, p2, p3) {
+  const u = 1 - t;
+  return u*u*u*p0 + 3*u*u*t*p1 + 3*u*t*t*p2 + t*t*t*p3;
 }

@@ -133,6 +133,25 @@ export const state = {
    * @type {{ bbox: {x,y,width,height}, center: {x,y}, angle: number } | null}
    */
   activeRotation: null,
+
+  /**
+   * Persistent collection-level rotation state for multi-selection.
+   * Written when a rotate drag commits; read by renderSelection and _enterRotate
+   * so the rotated overlay survives across subsequent scale/rotate operations.
+   * Cleared when the selection changes or the tool switches away.
+   * @type {{ bbox: {x,y,width,height}, center: {x,y}, angle: number } | null}
+   */
+  selectionRotation: null,
+
+  /**
+   * Transform origin for the current selection session.
+   * Set by the select tool when the user drags the crosshair; cleared when the
+   * user starts a new selection gesture.  Per-shape _origin is only written for
+   * single-shape selections; this slot covers both single and multi-selection
+   * so the crosshair stays live without tainting individual shapes.
+   * @type {{ x: number, y: number } | null}
+   */
+  selectionOrigin: null,
 };
 
 /** Return the active container item, falling back to the first root group. */

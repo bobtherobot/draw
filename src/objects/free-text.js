@@ -119,20 +119,60 @@ export class FreeTextObjectType extends ObjectType {
   }
 
   hitPart(shape, docX, docY, zoom) {
-    const bb = this.getBBox(shape);
+    const tol      = 4 / zoom;
+    const rotation = shape._rotation ?? 0;
+
+    if (rotation === 0) {
+      const bb = this.getBBox(shape);
+      if (!bb) return null;
+      if (docX >= bb.x - tol && docX <= bb.x + bb.width  + tol &&
+          docY >= bb.y - tol && docY <= bb.y + bb.height + tol) {
+        return { part: 'body' };
+      }
+      return null;
+    }
+
+    // Un-rotate the click into the shape's local frame, then test against
+    // the unrotated bbox — avoids false hits in the AABB corners.
+    const fs    = shape._fontSize ?? 14;
+    const rcx   = shape._rotCx ?? shape.attrs.x;
+    const rcy   = shape._rotCy ?? (shape.attrs.y + fs);
+    const local = rotatePoint(docX, docY, rcx, rcy, -rotation);
+    const bb    = this.getBBox({ ...shape, _rotation: 0 });
     if (!bb) return null;
-    const tol = 4 / zoom;
-    if (docX >= bb.x - tol && docX <= bb.x + bb.width  + tol &&
-        docY >= bb.y - tol && docY <= bb.y + bb.height + tol) {
+    if (local.x >= bb.x - tol && local.x <= bb.x + bb.width  + tol &&
+        local.y >= bb.y - tol && local.y <= bb.y + bb.height + tol) {
       return { part: 'body' };
     }
     return null;
+  }
+
+  syncRotDisplay(shape) {
+    if (!shape._rotDisplay || !shape._rotCx) return;
+    const localBB = this.getBBox({ ...shape, _rotation: 0 });
+    if (!localBB) return;
+    const localCx = localBB.x + localBB.width  / 2;
+    const localCy = localBB.y + localBB.height / 2;
+    const { x: visCx, y: visCy } = rotatePoint(localCx, localCy, shape._rotCx, shape._rotCy, shape._rotation);
+    shape._rotDisplay = {
+      bbox:   { x: visCx - localBB.width / 2, y: visCy - localBB.height / 2, width: localBB.width, height: localBB.height },
+      center: { x: visCx, y: visCy },
+      angle:  shape._rotation,
+    };
   }
 
   translate(shape, dx, dy) {
     shape.attrs.x += dx;
     shape.attrs.y += dy;
     if (shape._rotCx != null) { shape._rotCx += dx; shape._rotCy += dy; }
+    if (shape._rotDisplay) {
+      const rd = shape._rotDisplay;
+      shape._rotDisplay = {
+        bbox:   { x: rd.bbox.x + dx, y: rd.bbox.y + dy, width: rd.bbox.width, height: rd.bbox.height },
+        center: { x: rd.center.x + dx, y: rd.center.y + dy },
+        angle:  rd.angle,
+      };
+    }
   }
 
   scale(shape, sx, sy, ox, oy) {
@@ -140,16 +180,62 @@ export class FreeTextObjectType extends ObjectType {
     shape.attrs.y = oy + (shape.attrs.y - oy) * sy;
     shape._scaleX = (shape._scaleX ?? 1) * sx;
     shape._scaleY = (shape._scaleY ?? 1) * sy;
-    if (shape._rotCx != null) {
+    // When the shape is rotated, _rotCx/_rotCy is the pivot that maps attrs.x/y
+    // to the correct visual position.  Scaling it would move the fixed corner
+    // visually.  Leave it where it is; syncRotDisplay will recompute _rotDisplay
+    // from the new local bbox. For unrotated shapes, track it so a subsequent
+    // rotation starts from the right centre.
+    if (shape._rotCx != null && !shape._rotation) {
       shape._rotCx = ox + (shape._rotCx - ox) * sx;
       shape._rotCy = oy + (shape._rotCy - oy) * sy;
     }
   }
 
   bakeRotation(shape, angleDeg, cx, cy) {
-    shape._rotation = (shape._rotation ?? 0) + angleDeg;
-    shape._rotCx    = cx;
-    shape._rotCy    = cy;
+    const fs        = shape._fontSize ?? 14;
+    const prevAngle = shape._rotDisplay?.angle ?? 0;
+    const prevBBox  = shape._rotDisplay?.bbox  ?? this.getBBox({ ...shape, _rotation: 0 });
+
+    // New visual centre of this shape after the rotation.
+    const prevCx = prevBBox.x + prevBBox.width  / 2;
+    const prevCy = prevBBox.y + prevBBox.height / 2;
+    const { x: newCx, y: newCy } = rotatePoint(prevCx, prevCy, cx, cy, angleDeg);
+
+    const newAngle = (shape._rotation ?? 0) + angleDeg;
+
+    // Where attrs.x/y currently renders visually under the existing rotation.
+    const oldPivotX = shape._rotCx ?? shape.attrs.x;
+    const oldPivotY = shape._rotCy ?? (shape.attrs.y + fs);
+    const oldAngle  = shape._rotation ?? 0;
+    const visAnchor = oldAngle !== 0
+      ? rotatePoint(shape.attrs.x, shape.attrs.y, oldPivotX, oldPivotY, oldAngle)
+      : { x: shape.attrs.x, y: shape.attrs.y };
+
+    // After this rotation, where the anchor lands visually.
+    const { x: newVisX, y: newVisY } = rotatePoint(visAnchor.x, visAnchor.y, cx, cy, angleDeg);
+
+    // Store pivot at the shape's own visual centre and back-compute attrs.x/y so
+    // that drawCanvas2D renders at the correct position regardless of whether
+    // cx/cy was a collection pivot or the shape's own centre.
+    const newAttrs = newAngle !== 0
+      ? rotatePoint(newVisX, newVisY, newCx, newCy, -newAngle)
+      : { x: newVisX, y: newVisY };
+
+    shape.attrs.x   = newAttrs.x;
+    shape.attrs.y   = newAttrs.y;
+    shape._rotation = newAngle;
+    shape._rotCx    = newCx;
+    shape._rotCy    = newCy;
+    shape._rotDisplay = {
+      bbox: {
+        x:      newCx - prevBBox.width  / 2,
+        y:      newCy - prevBBox.height / 2,
+        width:  prevBBox.width,
+        height: prevBBox.height,
+      },
+      center: { x: newCx, y: newCy },
+      angle:  prevAngle + angleDeg,
+    };
   }
 
   toSVGString(shape, includeMetadata) {

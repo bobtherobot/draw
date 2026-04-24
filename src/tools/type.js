@@ -50,6 +50,7 @@ export class TypeTool extends Tool {
   onMouseDown(e) {
     if (e.button !== 0) return;
     if (isEditing()) commitEditing();
+    this._clearSelection();
 
     const ctx  = this._ctx;
     const pos  = ctx.screenToDoc(e.clientX, e.clientY);

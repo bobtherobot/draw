@@ -51,6 +51,7 @@ export class PenTool extends Tool {
     const pos = this._ctx.screenToDoc(e.clientX, e.clientY);
 
     if (!this._active) {
+      this._clearSelection();
       this._active  = true;
       this._anchors = [{ x: pos.x, y: pos.y, hIn: null, hOut: null }];
     } else if (this._anchors.length >= 2 && this._nearFirst(e.clientX, e.clientY)) {

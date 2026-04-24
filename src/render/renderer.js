@@ -14,7 +14,7 @@
  *  10. activeMode.afterRender()
  *  11. emit('render') → panel refreshes
  */
-import { state, effectiveVisible } from '../core/state.js';
+import { state, effectiveVisible, allDisplayItems } from '../core/state.js';
 import { getObjectType, getMode }  from '../core/registry.js';
 import { emit }                    from '../core/events.js';
 import { applyTransform }          from '../viewport.js';
@@ -81,6 +81,7 @@ export function render() {
 
   _drawArtboards();
   _drawTree(activeMode);
+  _drawWireframeDots(activeMode);
 
   _ckCanvas.restore();
 
@@ -152,16 +153,20 @@ function _drawTree(activeMode) {
 
 function _renderTextLayer() {
   if (!_textCanvas || !_textCtx) return;
+  // _canvas.width/height are already physical pixels (CSS size × devicePixelRatio).
+  // Match the text canvas to that buffer size.
+  const dpr = window.devicePixelRatio || 1;
   const w = _canvas.width, h = _canvas.height;
   if (_textCanvas.width !== w || _textCanvas.height !== h) {
-    _textCanvas.width = w;
+    _textCanvas.width  = w;
     _textCanvas.height = h;
   }
   const ctx = _textCtx;
   ctx.clearRect(0, 0, w, h);
   const { x: vx, y: vy, zoom } = state.viewport;
   ctx.save();
-  ctx.setTransform(zoom, 0, 0, zoom, -vx * zoom, -vy * zoom);
+  const s = zoom * dpr;
+  ctx.setTransform(s, 0, 0, s, -vx * s, -vy * s);
   _drawTextNodes(ctx, _buildRenderTree(state.items), getEditingShapeId());
   ctx.restore();
 }
@@ -227,4 +232,20 @@ function _drawNodes(nodes, activeMode, viewState, editingId) {
       if (children.length) _drawNodes(children, activeMode, viewState, editingId);
     }
   }
+}
+
+function _drawWireframeDots(activeMode) {
+  if (activeMode?.id !== 'wireframe') return;
+  const paint = new _CK.Paint();
+  paint.setStyle(_CK.PaintStyle.Fill);
+  paint.setColor(_CK.parseColorString('#4a9eff'));
+  paint.setAntiAlias(true);
+  const r = 3 / state.viewport.zoom;
+  for (const shape of allDisplayItems()) {
+    if (!effectiveVisible(shape)) continue;
+    const ot = getObjectType(shape.type);
+    const pts = ot?.getWireframePoints?.(shape) ?? [];
+    for (const { x, y } of pts) _ckCanvas.drawCircle(x, y, r, paint);
+  }
+  paint.delete();
 }

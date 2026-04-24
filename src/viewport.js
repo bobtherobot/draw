@@ -57,8 +57,9 @@ export function docToScreen(dx, dy) {
  */
 export function applyTransform(ckCanvas) {
   const { x, y, zoom } = state.viewport;
-  // Row-major 3×3 matrix: [zoom, 0, -x*zoom, 0, zoom, -y*zoom, 0, 0, 1]
-  ckCanvas.concat([zoom, 0, -x * zoom, 0, zoom, -y * zoom, 0, 0, 1]);
+  const dpr = window.devicePixelRatio || 1;
+  const s = zoom * dpr;
+  ckCanvas.concat([s, 0, -x * s, 0, s, -y * s, 0, 0, 1]);
 }
 
 /**

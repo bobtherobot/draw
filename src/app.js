@@ -35,9 +35,10 @@ export function buildApp() {
   canvasWrap.appendChild(canvas);
 
   // Set initial pixel dimensions synchronously so the first render is sharp.
+  const dpr = window.devicePixelRatio || 1;
   const initRect = canvasWrap.getBoundingClientRect();
-  canvas.width  = Math.round(initRect.width)  || 800;
-  canvas.height = Math.round(initRect.height) || 600;
+  canvas.width  = Math.round(initRect.width  * dpr) || 800;
+  canvas.height = Math.round(initRect.height * dpr) || 600;
 
   // ── Status bar ─────────────────────────────────────────────────────────────
   const statusbar = _el('div', 'statusbar');
@@ -51,8 +52,9 @@ export function buildApp() {
   // ── Resize → update canvas pixel dimensions, re-render ────────────────────
   new ResizeObserver(entries => {
     const { width, height } = entries[0].contentRect;
-    canvas.width  = Math.round(width)  || 1;
-    canvas.height = Math.round(height) || 1;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width  = Math.round(width  * dpr) || 1;
+    canvas.height = Math.round(height * dpr) || 1;
     invalidateRect();
     emit('resize');
   }).observe(canvasWrap);
@@ -83,6 +85,7 @@ export function applyTheme(themeName) {
     ['--cursor-grabbing', `url('${iconBase}/icons/cursors/cursor-grabbing.svg') 8 8, grabbing`],
     ['--cursor-zoom-in',  `url('${iconBase}/icons/cursors/cursor-zoom-in.svg') 10 10, zoom-in`],
     ['--cursor-zoom-out', `url('${iconBase}/icons/cursors/cursor-zoom-out.svg') 10 10, zoom-out`],
+    ['--cursor-rotate',   `url('${iconBase}/icons/cursors/cursor-rotate.svg') 12 12, crosshair`],
   ];
   for (const [prop, val] of cursors) {
     document.documentElement.style.setProperty(prop, val);
