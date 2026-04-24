@@ -26,12 +26,15 @@ export class SelectTool extends Tool {
     this._dragStart  = null;
     this._moved      = false;
     this._snapshots  = new Map(); // shapeId → attrs clone
-    this._bboxSnap        = null;  // selection bbox at drag start for scale
-    this._scaleHandle     = null;
-    this._scaleRotDisplay = null;  // _rotDisplay captured at scale-drag start
-    this._rotCenter       = null;
-    this._rotStart        = null;
-    this._initialAngle    = 0;     // accumulated rotation before current drag
+    this._bboxSnap           = null;
+    this._scaleHandle        = null;
+    this._scaleRotDisplay    = null;
+    this._scalingCollection  = false; // true when _scaleRotDisplay came from selectionRotation
+    this._selRotSnap         = null;  // selectionRotation snapshot at move-drag start
+    this._rotCenter          = null;
+    this._rotStart           = null;
+    this._initialAngle       = 0;
+    this._rotInitialCenter   = null;
     this._lastClickId= null;
     this._lastClickT = 0;
     this._bandLayer  = null;
@@ -42,6 +45,7 @@ export class SelectTool extends Tool {
 
   deactivate() {
     if (isEditing()) return; // let textarea commit naturally
+    if (this._ctx) this._ctx.state.selectionRotation = null;
     this._cleanup();
   }
 
@@ -61,6 +65,7 @@ export class SelectTool extends Tool {
     if (handle && ctx.state.selection.size > 0) {
       this._lastClickId = null;
       if (handle.part === 'rotate') { this._enterRotate(); return; }
+      if (handle.part === 'origin') { this._enterMoveOrigin(); return; }
       if (SCALE_HANDLES.includes(handle.part)) { this._enterScale(handle.part); return; }
     }
 
@@ -80,17 +85,27 @@ export class SelectTool extends Tool {
     this._lastClickT  = now;
     if (hitId) {
       if (!e.shiftKey && !ctx.state.selection.has(hitId)) {
+        // Switching to a different shape — new selection, discard session state.
+        ctx.state.selectionOrigin   = null;
+        ctx.state.selectionRotation = null;
         ctx.state.selection = new Set([hitId]);
       } else if (e.shiftKey) {
+        // Modifying selection — discard session state.
+        ctx.state.selectionOrigin   = null;
+        ctx.state.selectionRotation = null;
         const sel = new Set(ctx.state.selection);
         if (sel.has(hitId)) sel.delete(hitId); else sel.add(hitId);
         ctx.state.selection = sel;
       }
+      // else: clicking an already-selected shape to move — keep session state.
       this._mode = 'move';
       ctx.state.operation = 'move';
       this._snapshotMove();
       ctx.render();
     } else {
+      // Clicking empty space — discard session state.
+      ctx.state.selectionOrigin   = null;
+      ctx.state.selectionRotation = null;
       if (!e.shiftKey) ctx.state.selection = new Set();
       this._mode      = 'band';
       ctx.state.operation = 'band';
@@ -120,7 +135,19 @@ export class SelectTool extends Tool {
         if (!ot) continue;
         _restoreShape(shape, snap);
         ot.translate(shape, dx, dy);
+        if (snap._origin) shape._origin = { x: snap._origin.x + dx, y: snap._origin.y + dy };
       }
+      if (this._selRotSnap) {
+        const s = this._selRotSnap;
+        ctx.state.selectionRotation = {
+          bbox:   { x: s.bbox.x + dx, y: s.bbox.y + dy, width: s.bbox.width, height: s.bbox.height },
+          center: { x: s.center.x + dx, y: s.center.y + dy },
+          angle:  s.angle,
+        };
+      }
+      ctx.render();
+    } else if (this._mode === 'moveorigin') {
+      this._doMoveOrigin(pos);
       ctx.render();
     } else if (this._mode === 'band') {
       this._bandEnd = pos;
@@ -167,7 +194,12 @@ export class SelectTool extends Tool {
     } else if (this._mode === 'band') {
       this._commitBand(pos, e.shiftKey);
     } else if (this._mode === 'scale' || this._mode === 'rotate') {
+      if (this._mode === 'rotate' && ctx.state.activeRotation && ctx.state.selection.size > 1) {
+        ctx.state.selectionRotation = { ...ctx.state.activeRotation };
+      }
       this._commitTransform();
+    } else if (this._mode === 'moveorigin') {
+      if (this._moved) this._commitMoveOrigin();
     }
 
     this._cleanup();
@@ -181,7 +213,9 @@ export class SelectTool extends Tool {
 
   onKeyDown(e) {
     if (e.key === 'Escape') {
-      this._ctx.state.selection = new Set();
+      this._ctx.state.selection        = new Set();
+      this._ctx.state.selectionOrigin  = null;
+      this._ctx.state.selectionRotation = null;
       this._cleanup();
       this._ctx.render();
     }
@@ -198,6 +232,10 @@ export class SelectTool extends Tool {
       const shape = findItem(id);
       if (shape) this._snapshots.set(id, _cloneShape(shape));
     }
+    const sr = this._ctx.state.selectionRotation;
+    this._selRotSnap = sr
+      ? { bbox: { ...sr.bbox }, center: { ...sr.center }, angle: sr.angle }
+      : null;
   }
 
   // ── Scale ───────────────────────────────────────────────────────────────────
@@ -212,7 +250,14 @@ export class SelectTool extends Tool {
       if (shape) this._snapshots.set(id, _cloneShape(shape));
     }
     // If the selection has a uniform rotation, scale in the shape's local frame.
-    this._scaleRotDisplay = _uniformRotDisplay(this._ctx.state.selection);
+    // For multi-selection _uniformRotDisplay fails (different per-shape centers),
+    // so fall back to the persisted collection rotation state.
+    this._scaleRotDisplay   = _uniformRotDisplay(this._ctx.state.selection);
+    this._scalingCollection = false;
+    if (!this._scaleRotDisplay && this._ctx.state.selectionRotation && this._ctx.state.selection.size > 1) {
+      this._scaleRotDisplay   = this._ctx.state.selectionRotation;
+      this._scalingCollection = true;
+    }
     this._bboxSnap = this._scaleRotDisplay?.bbox ?? this._selectionBBox();
   }
 
@@ -256,27 +301,64 @@ export class SelectTool extends Tool {
         d = scalePathD(d, sx, sy, ox, oy);
         d = rotatePathD(d, angle, cx, cy);
         shape.attrs.d = d;
-        // Update each shape's _rotDisplay from its OWN pre-rotation bbox (from
-        // the snapshot), not from the union bbox — so multi-selection scales
-        // update each shape's individual overlay independently.
-        const shapeBB = snap._rotDisplay?.bbox;
+        // Update each shape's _rotDisplay from its OWN pre-rotation bbox.
+        //
+        // _rotDisplay invariant: bbox must be centered on center, and center
+        // must be the world-space visual center. For multi-selection (collection
+        // scaling) cx,cy is the collection center, not the shape center — so we
+        // unrotate each shape's snapshot center from the collection frame, scale
+        // it, then re-rotate to get the new world center. For single shapes
+        // snap._rotDisplay.center == cx,cy so this reduces to the same formula.
+        const shapeBB  = snap._rotDisplay?.bbox;
+        const snapCtr  = snap._rotDisplay?.center ?? { x: cx, y: cy };
         if (shapeBB) {
+          const scaledW  = shapeBB.width  * Math.abs(sx);
+          const scaledH  = shapeBB.height * Math.abs(sy);
+          const localC   = rotatePoint(snapCtr.x, snapCtr.y, cx, cy, -angle);
+          const newLCx   = ox + (localC.x - ox) * sx;
+          const newLCy   = oy + (localC.y - oy) * sy;
+          const { x: visCx, y: visCy } = rotatePoint(newLCx, newLCy, cx, cy, angle);
           shape._rotDisplay = {
-            bbox: {
-              x:      ox + (shapeBB.x - ox) * sx,
-              y:      oy + (shapeBB.y - oy) * sy,
-              width:  shapeBB.width  * Math.abs(sx),
-              height: shapeBB.height * Math.abs(sy),
-            },
-            center: { x: cx, y: cy },
+            bbox:   { x: visCx - scaledW / 2, y: visCy - scaledH / 2, width: scaledW, height: scaledH },
+            center: { x: visCx, y: visCy },
             angle,
           };
         } else {
           delete shape._rotDisplay;
         }
       } else {
-        ctx.getObjectType(shape.type)?.scale(shape, sx, sy, ox, oy);
+        const ot = ctx.getObjectType(shape.type);
+        ot?.scale(shape, sx, sy, ox, oy);
+        ot?.syncRotDisplay?.(shape);
       }
+
+      // Keep _origin fixed in stage/canvas coordinates when scaling a rotated
+      // shape — the origin is a stage-space reference point, so it must not move
+      // visually even as the object geometry changes beneath it.
+      const snapOrigin = snap._origin;
+      if (snapOrigin) {
+        if (rotDisp) {
+          shape._origin = { x: snapOrigin.x, y: snapOrigin.y };
+        } else {
+          shape._origin = { x: ox + (snapOrigin.x - ox) * sx, y: oy + (snapOrigin.y - oy) * sy };
+        }
+      }
+    }
+
+    // Keep selectionRotation (collection overlay bbox) in sync during scale drags
+    // so renderSelection can draw the correct rotated overlay each frame.
+    if (this._scalingCollection) {
+      const { center: { x: srCx, y: srCy }, angle: srAngle, bbox: srBB } = this._scaleRotDisplay;
+      const scaledW  = srBB.width  * Math.abs(sx);
+      const scaledH  = srBB.height * Math.abs(sy);
+      const localCx  = ox + (srCx - ox) * sx;
+      const localCy  = oy + (srCy - oy) * sy;
+      const { x: visCx, y: visCy } = rotatePoint(localCx, localCy, srCx, srCy, srAngle);
+      ctx.state.selectionRotation = {
+        bbox:   { x: visCx - scaledW / 2, y: visCy - scaledH / 2, width: scaledW, height: scaledH },
+        center: { x: visCx, y: visCy },
+        angle:  srAngle,
+      };
     }
   }
 
@@ -290,18 +372,28 @@ export class SelectTool extends Tool {
       const shape = findItem(id);
       if (shape) this._snapshots.set(id, _cloneShape(shape));
     }
+    const ctx = this._ctx;
+    const selectedShapes = [...ctx.state.selection].map(id => findItem(id)).filter(Boolean);
+    // Session origin (set by crosshair drag) takes priority; fall back to per-shape _origin.
+    const customOrigin = ctx.state.selectionOrigin ?? _uniformOriginFromShapes(selectedShapes);
     // If the selection already has a rotation, start from that state so the
     // overlay doesn't snap back to the axis-aligned box on handle grab.
-    const rotDisp = _uniformRotDisplay(this._ctx.state.selection);
+    // For multi-selection _uniformRotDisplay fails (each shape has its own center),
+    // so fall back to the persisted collection rotation state.
+    const rotDisp = _uniformRotDisplay(ctx.state.selection)
+      ?? (ctx.state.selectionRotation && ctx.state.selection.size > 1 ? ctx.state.selectionRotation : null);
     if (rotDisp) {
-      this._rotCenter    = rotDisp.center;
-      this._initialAngle = rotDisp.angle;
+      this._rotInitialCenter = rotDisp.center;
+      this._rotCenter        = customOrigin ?? rotDisp.center;
+      this._initialAngle     = rotDisp.angle;
       this._ctx.state.activeRotation = { bbox: rotDisp.bbox, center: rotDisp.center, angle: rotDisp.angle };
     } else {
       const bb = this._selectionBBox();
       if (bb) {
-        this._rotCenter = { x: bb.x + bb.width / 2, y: bb.y + bb.height / 2 };
-        this._ctx.state.activeRotation = { bbox: bb, center: this._rotCenter, angle: 0 };
+        const defaultCenter    = { x: bb.x + bb.width / 2, y: bb.y + bb.height / 2 };
+        this._rotInitialCenter = defaultCenter;
+        this._rotCenter        = customOrigin ?? defaultCenter;
+        this._ctx.state.activeRotation = { bbox: bb, center: defaultCenter, angle: 0 };
       }
       this._initialAngle = 0;
     }
@@ -315,8 +407,25 @@ export class SelectTool extends Tool {
     const angle = Math.atan2(pos.y - this._rotCenter.y, pos.x - this._rotCenter.x) * 180 / Math.PI;
     let   delta = angle - this._rotStart;
     if (doSnap) delta = Math.round(delta / 15) * 15;
-    // activeRotation.angle is the TOTAL accumulated angle, not just this drag's delta.
-    if (this._ctx.state.activeRotation) this._ctx.state.activeRotation.angle = this._initialAngle + delta;
+
+    if (this._ctx.state.activeRotation) {
+      const ar = this._ctx.state.activeRotation;
+      const rc = this._rotCenter;
+      const ic = this._rotInitialCenter;
+      // When the pivot differs from the initial visual centre, the selection box
+      // must orbit the pivot so it tracks the shape.
+      if (ic && (rc.x !== ic.x || rc.y !== ic.y)) {
+        const newCenter = rotatePoint(ic.x, ic.y, rc.x, rc.y, delta);
+        this._ctx.state.activeRotation = {
+          bbox:   { ...ar.bbox, x: newCenter.x - ar.bbox.width / 2, y: newCenter.y - ar.bbox.height / 2 },
+          center: newCenter,
+          angle:  this._initialAngle + delta,
+        };
+      } else {
+        ar.angle = this._initialAngle + delta;
+      }
+    }
+
     for (const id of this._ctx.state.selection) {
       const shape = findItem(id);
       if (!shape) continue;
@@ -324,7 +433,66 @@ export class SelectTool extends Tool {
       if (!shapeSnap) continue;
       _restoreShape(shape, shapeSnap);
       this._ctx.getObjectType(shape.type)?.bakeRotation(shape, delta, this._rotCenter.x, this._rotCenter.y);
+      // Keep _origin attached to the shape as it rotates.
+      if (shapeSnap._origin) {
+        const { x, y } = rotatePoint(shapeSnap._origin.x, shapeSnap._origin.y, this._rotCenter.x, this._rotCenter.y, delta);
+        shape._origin = { x, y };
+      }
     }
+  }
+
+  // ── Move origin ─────────────────────────────────────────────────────────────
+
+  _enterMoveOrigin() {
+    this._mode = 'moveorigin';
+    this._ctx.state.operation = 'moveorigin';
+    this._snapshots.clear();
+    for (const id of this._ctx.state.selection) {
+      const shape = findItem(id);
+      if (shape) this._snapshots.set(id, _cloneShape(shape));
+    }
+  }
+
+  _doMoveOrigin(pos) {
+    // Always update the session-level origin so the crosshair tracks the drag.
+    this._ctx.state.selectionOrigin = { x: pos.x, y: pos.y };
+    // Only write per-shape _origin for single-shape selections — multi-selection
+    // origin moves must not persist onto individual shapes.
+    if (this._ctx.state.selection.size === 1) {
+      for (const id of this._ctx.state.selection) {
+        const shape = findItem(id);
+        if (shape) shape._origin = { x: pos.x, y: pos.y };
+      }
+    }
+  }
+
+  _commitMoveOrigin() {
+    const ctx = this._ctx;
+    // Multi-selection: selectionOrigin is already set; no per-shape history entry.
+    if (ctx.state.selection.size !== 1) return;
+    // Single selection: commit _origin change so undo restores it.
+    const snapshots = new Map(this._snapshots);
+    const postSnaps = new Map();
+    for (const id of ctx.state.selection) {
+      const shape = findItem(id);
+      if (shape) postSnaps.set(id, _cloneShape(shape));
+    }
+    ctx.execute({
+      do() {
+        for (const [id, snap] of postSnaps) {
+          const s = findItem(id);
+          if (s) { _restoreShape(s, snap); ctx.state.selectionOrigin = s._origin ?? null; }
+        }
+        ctx.render();
+      },
+      undo() {
+        for (const [id, snap] of snapshots) {
+          const s = findItem(id);
+          if (s) { _restoreShape(s, snap); ctx.state.selectionOrigin = s._origin ?? null; }
+        }
+        ctx.render();
+      },
+    });
   }
 
   // ── Rubber band ─────────────────────────────────────────────────────────────
@@ -348,7 +516,8 @@ export class SelectTool extends Tool {
         sel.add(shape.id);
       }
     }
-    ctx.state.selection = sel;
+    ctx.state.selection        = sel;
+    ctx.state.selectionRotation = null;
   }
 
   // ── Commit transform ─────────────────────────────────────────────────────────
@@ -409,7 +578,7 @@ export class SelectTool extends Tool {
         const s = findItem(shapeId);
         if (s) s._text = snap._text;
         ctx.execute({
-          do()   { const s = findItem(shapeId); if (s) { s._text = text; ctx.render(); } },
+          do()   { const s = findItem(shapeId); if (s) { s._text = text; ctx.getObjectType(s.type)?.syncRotDisplay?.(s); ctx.render(); } },
           undo() { const s = findItem(shapeId); if (s) { _restoreShape(s, snap); ctx.render(); } },
         });
       },
@@ -435,9 +604,10 @@ export class SelectTool extends Tool {
 
     ctx.execute({
       do() {
-        ctx.state.items = ctx.state.items.filter(i => !ids.includes(i.id));
+        ctx.state.items             = ctx.state.items.filter(i => !ids.includes(i.id));
         sanitizeItems(ctx.state.items);
-        ctx.state.selection = new Set();
+        ctx.state.selection          = new Set();
+        ctx.state.selectionRotation  = null;
         ctx.render();
       },
       undo() {
@@ -514,12 +684,14 @@ export class SelectTool extends Tool {
       this._bandEnd   = null;
     }
     this._snapshots.clear();
+    this._selRotSnap      = null;
     this._bboxSnap        = null;
     this._scaleHandle     = null;
     this._scaleRotDisplay = null;
-    this._rotCenter       = null;
-    this._rotStart        = null;
-    this._initialAngle    = 0;
+    this._rotCenter          = null;
+    this._rotStart           = null;
+    this._initialAngle       = 0;
+    this._rotInitialCenter   = null;
     if (this._ctx) {
       this._ctx.state.operation     = null;
       this._ctx.state.activeRotation = null;
@@ -549,6 +721,17 @@ function _uniformRotDisplay(selectionSet) {
   return union ? { bbox: union, center: first.center, angle: first.angle } : null;
 }
 
+function _uniformOriginFromShapes(shapes) {
+  if (!shapes.length) return null;
+  const first = shapes[0]?._origin;
+  if (!first) return null;
+  for (let i = 1; i < shapes.length; i++) {
+    const o = shapes[i]?._origin;
+    if (!o || o.x !== first.x || o.y !== first.y) return null;
+  }
+  return first;
+}
+
 function _css(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
@@ -565,7 +748,7 @@ function _restoreShape(shape, snap) {
   Object.assign(shape.attrs, snap.attrs);
   Object.assign(shape.style, snap.style);
   for (const k of ['_text','_fontSize','_fontFamily','_textAlign','_boxWidth','_boxHeight',
-                   '_scaleX','_scaleY','_rotation','_rotCx','_rotCy','_rotDisplay']) {
+                   '_scaleX','_scaleY','_rotation','_rotCx','_rotCy','_rotDisplay','_origin']) {
     if (k in snap) shape[k] = snap[k];
     else delete shape[k];
   }

@@ -13,10 +13,12 @@ import { getEditingShapeId } from '../textedit.js';
 import { getCanvasRect }     from '../viewport.js';
 import { getCK }             from './renderer.js';
 
-const HANDLE_SIZE = 6;   // CSS px side length of scale handle squares
-const ROTATE_DIST = 20;  // CSS px above top-center handle
-const ROTATE_SIZE = 5;   // CSS px radius of rotate dot
-const HIT_PAD     = 3;   // CSS px added to handle hit areas
+const HANDLE_SIZE  = 6;   // CSS px side length of scale handle squares
+const ROTATE_DIST  = 20;  // CSS px above top-center handle
+const ROTATE_SIZE  = 5;   // CSS px radius of rotate dot
+const HIT_PAD      = 3;   // CSS px added to handle hit areas
+const ORIGIN_ARM   = 6;   // CSS px half-length of plus-sign arms
+const ORIGIN_HIT_R = 9;   // CSS px hit radius for origin handle
 
 // Handle hit-areas registered each frame. Positions in CSS px.
 // Shape: { part, x, y, w, h } for squares  |  { part, x, y, r } for circles
@@ -65,6 +67,12 @@ export function renderSelection(ckCanvas, state, getObjectType) {
 
   if (state.activeRotation) {
     _drawRotated(ckCanvas, CK, state.activeRotation, dc, dpr, accent, bg);
+    const rotSelected = [...state.selection].map(id => findItem(id)).filter(Boolean);
+    const rotOrigin = state.selectionOrigin ?? _uniformOriginFromSelected(rotSelected);
+    const rotPt = rotOrigin ?? state.activeRotation.center;
+    const op = dc(rotPt.x, rotPt.y);
+    _drawOriginCrosshair(ckCanvas, CK, op, dpr, accent);
+    _handles.push({ part: 'origin', x: op.x, y: op.y, r: ORIGIN_HIT_R + HIT_PAD });
     return;
   }
 
@@ -77,35 +85,51 @@ export function renderSelection(ckCanvas, state, getObjectType) {
   }
   if (!selected.length) return;
 
+  let originX, originY;
+
   const firstRot = selected[0]._rotDisplay;
-  if (firstRot && selected.every(s => s._rotDisplay &&
+  const uniformRot = firstRot && selected.every(s => s._rotDisplay &&
       s._rotDisplay.angle    === firstRot.angle &&
       s._rotDisplay.center.x === firstRot.center.x &&
-      s._rotDisplay.center.y === firstRot.center.y)) {
-    _drawRotated(ckCanvas, CK, firstRot, dc, dpr, accent, bg);
-    return;
+      s._rotDisplay.center.y === firstRot.center.y) ? firstRot : null;
+  // For multi-selection, _uniformRotDisplay fails because each shape has its own
+  // center. Fall back to the persistent collection rotation state instead.
+  const collectionRot = !uniformRot && state.selectionRotation && selected.length > 1
+    ? state.selectionRotation : null;
+  const rotData = uniformRot ?? collectionRot;
+
+  if (rotData) {
+    _drawRotated(ckCanvas, CK, rotData, dc, dpr, accent, bg);
+    const uOrigin = _uniformOriginFromSelected(selected) ?? state.selectionOrigin;
+    originX = uOrigin?.x ?? rotData.center.x;
+    originY = uOrigin?.y ?? rotData.center.y;
+  } else {
+    const bboxes = selected
+      .map(s => getObjectType(s.type)?.getBBox(s))
+      .filter(Boolean);
+    const bb = unionBBoxes(bboxes);
+    if (!bb) return;
+
+    const tl = dc(bb.x,            bb.y);
+    const br = dc(bb.x + bb.width, bb.y + bb.height);
+    const bx_css = tl.x, by_css = tl.y, bw_css = br.x - tl.x, bh_css = br.y - tl.y;
+    const bx = bx_css * dpr, by = by_css * dpr, bw = bw_css * dpr, bh = bh_css * dpr;
+
+    ckCanvas.save();
+    _drawBox(ckCanvas, CK, bx, by, bw, bh, accent, dpr);
+    _drawHandleVisuals(ckCanvas, CK, bx, by, bw, bh, dpr, accent, bg);
+    ckCanvas.restore();
+
+    _registerHandles(bx_css, by_css, bw_css, bh_css, null);
+
+    const uOrigin = _uniformOriginFromSelected(selected) ?? state.selectionOrigin;
+    originX = uOrigin?.x ?? (bb.x + bb.width  / 2);
+    originY = uOrigin?.y ?? (bb.y + bb.height / 2);
   }
 
-  const bboxes = selected
-    .map(s => getObjectType(s.type)?.getBBox(s))
-    .filter(Boolean);
-  const bb = unionBBoxes(bboxes);
-  if (!bb) return;
-
-  // CSS pixel bbox (for hit registration)
-  const tl = dc(bb.x,            bb.y);
-  const br = dc(bb.x + bb.width, bb.y + bb.height);
-  const bx_css = tl.x, by_css = tl.y, bw_css = br.x - tl.x, bh_css = br.y - tl.y;
-
-  // Physical pixel bbox (for drawing)
-  const bx = bx_css * dpr, by = by_css * dpr, bw = bw_css * dpr, bh = bh_css * dpr;
-
-  ckCanvas.save();
-  _drawBox(ckCanvas, CK, bx, by, bw, bh, accent, dpr);
-  _drawHandleVisuals(ckCanvas, CK, bx, by, bw, bh, dpr, accent, bg);
-  ckCanvas.restore();
-
-  _registerHandles(bx_css, by_css, bw_css, bh_css, null);
+  const op = dc(originX, originY);
+  _drawOriginCrosshair(ckCanvas, CK, op, dpr, accent);
+  _handles.push({ part: 'origin', x: op.x, y: op.y, r: ORIGIN_HIT_R + HIT_PAD });
 }
 
 // ── Private ──────────────────────────────────────────────────────────────────
@@ -232,6 +256,32 @@ function _rotPt(px, py, { cx, cy, rad }) {
   const cos = Math.cos(rad), sin = Math.sin(rad);
   const dx = px - cx, dy = py - cy;
   return { x: cx + dx * cos - dy * sin, y: cy + dx * sin + dy * cos };
+}
+
+function _drawOriginCrosshair(ckCanvas, CK, op_css, dpr, accent) {
+  const cx  = op_css.x * dpr;
+  const cy  = op_css.y * dpr;
+  const arm = ORIGIN_ARM * dpr;
+
+  const paint = new CK.Paint();
+  paint.setStyle(CK.PaintStyle.Stroke);
+  paint.setColor(CK.parseColorString(accent));
+  paint.setStrokeWidth(1.5 * dpr);
+  paint.setAntiAlias(true);
+  ckCanvas.drawLine(cx - arm, cy, cx + arm, cy, paint);
+  ckCanvas.drawLine(cx, cy - arm, cx, cy + arm, paint);
+  paint.delete();
+}
+
+function _uniformOriginFromSelected(shapes) {
+  if (!shapes.length) return null;
+  const first = shapes[0]._origin;
+  if (!first) return null;
+  for (let i = 1; i < shapes.length; i++) {
+    const o = shapes[i]._origin;
+    if (!o || o.x !== first.x || o.y !== first.y) return null;
+  }
+  return first;
 }
 
 function _css(name) {
