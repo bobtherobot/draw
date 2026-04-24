@@ -45,7 +45,7 @@ export class TextBlockObjectType extends ObjectType {
   get icon()  { return 'object-text-block'; }
 
   createShape(initAttrs, initStyle) {
-    return {
+    const shape = {
       id:           nextId(this.id),
       type:         'text-block',
       attrs:        { x: 0, y: 0, ...initAttrs },
@@ -56,6 +56,15 @@ export class TextBlockObjectType extends ObjectType {
       _boxWidth:    initAttrs._boxWidth    ?? 200,
       _boxHeight:   initAttrs._boxHeight   ?? 100,
     };
+    const bb = this.getBBox(shape);
+    if (bb && (bb.width > 0 || bb.height > 0)) {
+      shape._rotDisplay = {
+        bbox:   bb,
+        center: { x: bb.x + bb.width / 2, y: bb.y + bb.height / 2 },
+        angle:  0,
+      };
+    }
+    return shape;
   }
 
   // CanvasKit draw is a no-op — text is rendered by the Canvas 2D layer in renderer.js

@@ -91,6 +91,15 @@ export class Tool {
     if (this._ctx) this._ctx.emit('subfeature-change', { tool: this.id, subFeature: id });
   }
 
+  // ── Shared helpers ──────────────────────────────────────────────────────────
+
+  _clearSelection() {
+    const s = this._ctx.state;
+    s.selection        = new Set();
+    s.selectionOrigin  = null;
+    s.selectionRotation = null;
+  }
+
   // ── Event handlers (override as needed) ────────────────────────────────────
 
   /** @param {MouseEvent} e */   onMouseDown(e) {}

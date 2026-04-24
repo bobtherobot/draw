@@ -14,6 +14,7 @@ export class EllipseTool extends Tool {
 
   onMouseDown(e) {
     if (e.button !== 0) return;
+    this._clearSelection();
     this._drawing = true;
     this._start   = this._ctx.screenToDoc(e.clientX, e.clientY);
     this._geom    = null;
