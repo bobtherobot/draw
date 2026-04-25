@@ -9,6 +9,7 @@ import { Tool } from './base.js';
 import { startEditing, isEditing } from '../textedit.js';
 import { unionBBoxes } from '../geometry/bbox.js';
 import { effectiveVisible, effectiveLocked, allDisplayItems, findItem, sanitizeItems } from '../core/state.js';
+import { rotatePoint } from '../geometry/path-utils.js';
 import { hitTest } from '../core/hit-test.js';
 import { handleAtPoint } from '../render/selection.js';
 import { applyTransform } from '../viewport.js';
@@ -283,15 +284,20 @@ export class SelectTool extends Tool {
   _openTextEditor(shape, shapeId) {
     const ctx  = this._ctx;
     const snap = cloneShape(shape);
+    const rotation = shape._rotation ?? 0;
+    const visualAnchor = rotation !== 0
+      ? rotatePoint(shape.attrs.x, shape.attrs.y, shape._rotCx, shape._rotCy, rotation)
+      : { x: shape.attrs.x, y: shape.attrs.y };
     startEditing({
-      docX:        shape.attrs.x,
-      docY:        shape.attrs.y,
+      docX:        visualAnchor.x,
+      docY:        visualAnchor.y,
       fontSize:    shape._fontSize   ?? 14,
       fontFamily:  shape._fontFamily ?? 'sans-serif',
       textAlign:   shape._textAlign  ?? 'left',
       fill:        shape.style.fill  ?? '#000000',
       scaleX:      shape._scaleX     ?? 1,
       scaleY:      shape._scaleY     ?? 1,
+      rotation,
       zoom:        ctx.state.viewport.zoom,
       shapeId,
       boxWidth:    shape.type === 'text-block' ? shape._boxWidth  : undefined,

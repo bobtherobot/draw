@@ -1,6 +1,7 @@
 import { Tool } from './base.js';
-import { startEditing, isEditing, commitEditing } from '../textedit.js';
+import { startEditing, isEditing, commitEditing, charIndexAtPoint, setTextareaSelection } from '../textedit.js';
 import { findItem, state, allDisplayItems } from '../core/state.js';
+import { rotatePoint } from '../geometry/path-utils.js';
 import { applyTransform } from '../viewport.js';
 import { getCK } from '../render/renderer.js';
 
@@ -12,22 +13,36 @@ export class TypeTool extends Tool {
 
   activate() {
     this._layer = this._ctx.overlay.acquireLayer('type-hover');
+    this._dragAnchorIdx = null;
   }
 
   deactivate() {
     this._layer?.clear();
     this._ctx.overlay.releaseLayer('type-hover');
     this._layer = null;
+    this._dragAnchorIdx = null;
   }
 
-  onMouseMove() {
+  onMouseMove(e) {
+    // While the user drags from the click that opened the editor, extend the
+    // textarea selection using font-measurement hit-testing.
+    if (this._dragAnchorIdx !== null && isEditing() && (e.buttons & 1)) {
+      setTextareaSelection(this._dragAnchorIdx, charIndexAtPoint(e.clientX, e.clientY));
+      return;
+    }
+
+    // Hover highlight: draw a thin blue outline around any text shape under the cursor.
     this._layer.clear();
     const shape = state.hover.shape;
     const isOverText = shape && (shape.type === 'free-text' || shape.type === 'text-block');
     if (!isOverText) return;
 
-    const ot = this._ctx.getObjectType(shape.type);
-    const bb = ot?.getBBox(shape);
+    const ot       = this._ctx.getObjectType(shape.type);
+    const rotation = shape._rotation ?? 0;
+    // For rotated shapes get the unrotated local bbox — we apply rotation via concat.
+    const bb = rotation !== 0
+      ? ot?.getBBox({ ...shape, _rotation: 0 })
+      : ot?.getBBox(shape);
     if (!bb) return;
 
     this._layer.addCall(ckCanvas => {
@@ -35,11 +50,23 @@ export class TypeTool extends Tool {
       const z  = this._ctx.state.viewport.zoom;
       ckCanvas.save();
       applyTransform(ckCanvas);
+      if (rotation !== 0) {
+        const fs  = shape._fontSize ?? 14;
+        const rcx = shape._rotCx ?? shape.attrs.x;
+        const rcy = shape._rotCy ?? (shape.attrs.y + fs);
+        const rad = rotation * Math.PI / 180;
+        const cos = Math.cos(rad), sin = Math.sin(rad);
+        ckCanvas.concat([
+          cos, -sin, rcx * (1 - cos) + rcy * sin,
+          sin,  cos, rcy * (1 - cos) - rcx * sin,
+          0, 0, 1,
+        ]);
+      }
       const paint = new CK.Paint();
       paint.setStyle(CK.PaintStyle.Stroke);
       paint.setColor(CK.parseColorString('#55aaff'));
       paint.setStrokeWidth(1 / z);
-      paint.setAntiAlias(false);
+      paint.setAntiAlias(rotation !== 0);
       ckCanvas.drawRect(CK.XYWHRect(bb.x, bb.y, bb.width, bb.height), paint);
       paint.delete();
       ckCanvas.restore();
@@ -47,9 +74,14 @@ export class TypeTool extends Tool {
     this._ctx.render();
   }
 
+  onMouseUp() {
+    this._dragAnchorIdx = null;
+  }
+
   onMouseDown(e) {
     if (e.button !== 0) return;
     if (isEditing()) commitEditing();
+    this._dragAnchorIdx = null;
     this._clearSelection();
 
     const ctx  = this._ctx;
@@ -62,7 +94,10 @@ export class TypeTool extends Tool {
       const shape = textShapes[i];
       const ot    = ctx.getObjectType(shape.type);
       if (ot.hitPart(shape, pos.x, pos.y, zoom)) {
-        this._openTextEditor(shape);
+        this._openTextEditor(shape, e.clientX, e.clientY);
+        // Store the anchor index for drag-to-select (charIndexAtPoint uses
+        // params written by startEditing, so this must come after _openTextEditor).
+        this._dragAnchorIdx = charIndexAtPoint(e.clientX, e.clientY);
         return;
       }
     }
@@ -102,7 +137,7 @@ export class TypeTool extends Tool {
     ctx.render();
   }
 
-  _openTextEditor(shape) {
+  _openTextEditor(shape, clickX, clickY) {
     this._layer?.clear();
     const ctx    = this._ctx;
     ctx.state.selection = new Set([shape.id]);
@@ -110,18 +145,24 @@ export class TypeTool extends Tool {
     const snap   = { _text: shape._text };
     const shapeId = shape.id;
 
+    const rotation = shape._rotation ?? 0;
+    const visualAnchor = rotation !== 0
+      ? rotatePoint(shape.attrs.x, shape.attrs.y, shape._rotCx, shape._rotCy, rotation)
+      : { x: shape.attrs.x, y: shape.attrs.y };
     startEditing({
-      docX:        shape.attrs.x,
-      docY:        shape.attrs.y,
+      docX:        visualAnchor.x,
+      docY:        visualAnchor.y,
       fontSize:    shape._fontSize   ?? 14,
       fontFamily:  shape._fontFamily ?? 'sans-serif',
       textAlign:   shape._textAlign  ?? 'left',
       fill:        shape.style.fill  ?? '#000000',
       scaleX:      shape._scaleX     ?? 1,
       scaleY:      shape._scaleY     ?? 1,
+      rotation,
       zoom:        ctx.state.viewport.zoom,
       shapeId,
       initialText: shape._text ?? '',
+      clickX, clickY,
       onInput: (text) => {
         const s = findItem(shapeId);
         if (s) { s._text = text; ctx.render(); }
@@ -129,14 +170,20 @@ export class TypeTool extends Tool {
       onCommit: (text) => {
         const s = findItem(shapeId);
         if (s) s._text = snap._text;
+        this._dragAnchorIdx = null;
+        // Clear selection before execute so do()'s render doesn't flash the overlay.
+        ctx.state.selection = new Set();
         ctx.execute({
-          do()   { const s = findItem(shapeId); if (s) { s._text = text;       ctx.render(); } },
+          do()   { const s = findItem(shapeId); if (s) { s._text = text; ctx.getObjectType(s.type)?.syncRotDisplay?.(s); ctx.render(); } },
           undo() { const s = findItem(shapeId); if (s) { s._text = snap._text; ctx.render(); } },
         });
       },
       onCancel: () => {
         const s = findItem(shapeId);
-        if (s) { s._text = snap._text; ctx.render(); }
+        if (s) s._text = snap._text;
+        this._dragAnchorIdx = null;
+        ctx.state.selection = new Set();
+        ctx.render();
       },
     });
     ctx.render();
