@@ -6,13 +6,7 @@
  * Backwards-compat: borrow() returns a no-op proxy so old tool code
  * doesn't crash during migration. Migrate callers to addCall() in Phase 6.
  */
-
-const _dummyEl = new Proxy({}, {
-  get(_, prop) {
-    if (prop === 'tagName') return 'dummy';
-    return () => _dummyEl;
-  },
-});
+import { OverlayLayer } from './OverlayLayer.js';
 
 export class OverlayManager {
   constructor() {
@@ -30,29 +24,5 @@ export class OverlayManager {
 
   flushAll(ctx) {
     for (const layer of this._layers.values()) layer.flush(ctx);
-  }
-}
-
-export class OverlayLayer {
-  constructor() {
-    this._calls = [];
-  }
-
-  clear() {
-    this._calls = [];
-  }
-
-  /** Backwards-compat shim — returns a dummy that absorbs setAttribute calls. */
-  borrow(_tag) {
-    return _dummyEl;
-  }
-
-  /** Add a canvas draw call: fn receives the 2d context. */
-  addCall(fn) {
-    this._calls.push(fn);
-  }
-
-  flush(ctx) {
-    for (const fn of this._calls) fn(ctx);
   }
 }
