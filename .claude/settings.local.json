@@ -36,7 +36,9 @@
       "Bash(git stash *)",
       "Bash(echo \"exit $?\")",
       "Bash(sed -n '44,55p' /home/bob/projects/draw/src/objects/group.js)",
-      "Bash(sed -n '119,130p' /home/bob/projects/draw/src/objects/text-block.js)"
+      "Bash(sed -n '119,130p' /home/bob/projects/draw/src/objects/text-block.js)",
+      "Bash(git -C /home/bob/projects/draw status)",
+      "Bash(git -C /home/bob/projects/draw log --oneline -3)"
     ]
   }
 }
