@@ -21,6 +21,7 @@ import { applyTransform }          from '../viewport.js';
 import { OverlayManager }          from './overlay.js';
 import { renderSelection }         from './selection.js';
 import { getEditingShapeId }       from '../textedit.js';
+import { syncCompanions, getCompanions } from '../core/item-registry.js';
 
 let _CK             = null;  // CanvasKit instance
 let _canvas         = null;  // HTMLCanvasElement
@@ -63,6 +64,9 @@ export function getOverlay() {
  */
 export function render() {
   if (!_CK || !_canvas) return;
+
+  // Keep companion registry in sync with state.items (handles create/delete/undo/redo)
+  syncCompanions(state.items);
 
   // Recreate surface if canvas dimensions changed (e.g. window resize)
   if (!_surface || _surface.width() !== _canvas.width || _surface.height() !== _canvas.height) {
@@ -187,6 +191,11 @@ function _drawTextNodes(ctx, nodes, editingId) {
       if (item.id !== editingId) {
         const ot = getObjectType(item.type);
         ot?.drawCanvas2D?.(ctx, item);
+        const comps = getCompanions(item.id);
+        if (comps?.aux) {
+          const viewState = { mode: state.activeMode, zoom: state.viewport.zoom };
+          comps.aux.drawCanvas2D(ctx, item, comps.abstract, viewState, state);
+        }
       }
       if (children.length) _drawTextNodes(ctx, children, editingId);
     }
@@ -227,6 +236,8 @@ function _drawNodes(nodes, activeMode, viewState, editingId) {
             ? { ...item, style: { ...item.style, ...modeStyle } }
             : item;
           ot.draw(_ckCanvas, renderItem, viewState);
+          const comps = getCompanions(item.id);
+          if (comps?.aux) comps.aux.draw(_ckCanvas, renderItem, comps.abstract, viewState, state);
         }
       }
       if (children.length) _drawNodes(children, activeMode, viewState, editingId);

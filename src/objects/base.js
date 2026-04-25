@@ -98,4 +98,15 @@ export class ObjectType {
    * @returns {{x:number, y:number}[]}
    */
   getWireframePoints(shape) { return []; }
+
+  // ── Companion object factory ─────────────────────────────────────────────────
+
+  /**
+   * Create an optional AuxObject for per-type extra rendering.
+   * Called once when the item is added to state.items[].
+   * Return null (default) if this type needs no auxiliary rendering.
+   * @param {object} item
+   * @returns {import('./aux-object.js').AuxObject | null}
+   */
+  createAuxObject(item) { return null; }
 }

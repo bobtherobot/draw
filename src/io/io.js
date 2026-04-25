@@ -5,6 +5,7 @@ import { state, nextId, sanitizeItems } from '../core/state.js';
 import { emit }                  from '../core/events.js';
 import { fitToArtboard }         from '../viewport.js';
 import { serializeJSON, deserializeJSON, exportSVG as buildSVG, importSVG } from './serializer.js';
+import { rebuildAll }            from '../core/item-registry.js';
 
 /** Reset to a blank document. */
 export function newDocument() {
@@ -70,6 +71,7 @@ function _loadFile(text, filename) {
   state.selection.clear();
   state.doc = { name: filename.replace(/\.(draw|svg|json)$/i, '') };
   sanitizeItems(state.items);
+  rebuildAll(state.items);
 
   emit('render', null);
   fitToArtboard();

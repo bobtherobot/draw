@@ -1,6 +1,7 @@
-import { ObjectType } from './base.js';
-import { nextId } from '../core/state.js';
-import { rotatePoint } from '../geometry/path-utils.js';
+import { ObjectType }        from './base.js';
+import { nextId }            from '../core/state.js';
+import { rotatePoint }       from '../geometry/path-utils.js';
+import { FreeTextAuxObject } from './free-text-aux.js';
 
 // ── Canvas measurement ────────────────────────────────────────────────────────
 
@@ -298,6 +299,10 @@ export class FreeTextObjectType extends ObjectType {
 
   getWireframePoints(shape) {
     return [{ x: shape.attrs.x, y: shape.attrs.y }];
+  }
+
+  createAuxObject(_item) {
+    return new FreeTextAuxObject();
   }
 }
 

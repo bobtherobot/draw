@@ -16,6 +16,7 @@ import { applyTransform } from '../viewport.js';
 import { getCK } from '../render/renderer.js';
 import { TransformController } from './transops.js';
 import { cloneShape, restoreShape } from './snapshots.js';
+import { getCompanions } from '../core/item-registry.js';
 
 const DBL_CLICK_MS  = 400;
 
@@ -46,7 +47,6 @@ export class SelectTool extends Tool {
     this._mode       = 'idle'; // 'idle'|'move'|'band'|'transop'
     this._dragStart  = null;
     this._moved      = false;
-    this._snapshots  = new Map(); // shapeId → attrs clone
     this._selRotSnap    = null;  // selectionRotation snapshot at move-drag start
     this._selOriginSnap = null;  // selectionOrigin snapshot at move-drag start
     this._lastClickId= null;
@@ -149,15 +149,7 @@ export class SelectTool extends Tool {
 
     if (this._mode === 'move') {
       for (const id of ctx.state.selection) {
-        const shape = findItem(id);
-        if (!shape) continue;
-        const snap = this._snapshots.get(id);
-        if (!snap) continue;
-        const ot = ctx.getObjectType(shape.type);
-        if (!ot) continue;
-        restoreShape(shape, snap);
-        ot.translate(shape, dx, dy);
-        if (snap._origin) shape._origin = { x: snap._origin.x + dx, y: snap._origin.y + dy };
+        getCompanions(id)?.abstract.applyMove(dx, dy);
       }
       if (this._selRotSnap) {
         const s = this._selRotSnap;
@@ -186,24 +178,23 @@ export class SelectTool extends Tool {
     const pos  = ctx.screenToDoc(e.clientX, e.clientY);
 
     if (this._mode === 'move' && this._moved) {
-      const snapshots = new Map(this._snapshots);
-      const postSnaps = new Map();
+      const entries = [];
       for (const id of ctx.state.selection) {
-        const shape = findItem(id);
-        if (shape) postSnaps.set(id, cloneShape(shape));
+        const result = getCompanions(id)?.abstract.commitOp();
+        if (result) entries.push(result);
       }
       ctx.execute({
         do() {
-          for (const [id, snap] of postSnaps) {
+          for (const { id, post } of entries) {
             const shape = findItem(id);
-            if (shape) restoreShape(shape, snap);
+            if (shape) restoreShape(shape, post);
           }
           ctx.render();
         },
         undo() {
-          for (const [id, snap] of snapshots) {
+          for (const { id, pre } of entries) {
             const shape = findItem(id);
-            if (shape) restoreShape(shape, snap);
+            if (shape) restoreShape(shape, pre);
           }
           ctx.render();
         },
@@ -241,10 +232,8 @@ export class SelectTool extends Tool {
   // ── Move ────────────────────────────────────────────────────────────────────
 
   _snapshotMove() {
-    this._snapshots.clear();
     for (const id of this._ctx.state.selection) {
-      const shape = findItem(id);
-      if (shape) this._snapshots.set(id, cloneShape(shape));
+      getCompanions(id)?.abstract.beginOp();
     }
     const sr = this._ctx.state.selectionRotation;
     this._selRotSnap = sr
@@ -406,7 +395,6 @@ export class SelectTool extends Tool {
       this._bandStart = null;
       this._bandEnd   = null;
     }
-    this._snapshots.clear();
     this._selRotSnap    = null;
     this._selOriginSnap = null;
     this._transops.reset();
