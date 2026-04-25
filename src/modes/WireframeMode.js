@@ -1,4 +1,4 @@
-import { Mode } from './base.js';
+import { Mode } from './Mode.js';
 
 const WIREFRAME_STROKE = '#4a9eff';
 const WIREFRAME_WIDTH  = 1;

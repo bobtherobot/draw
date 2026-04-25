@@ -1,15 +1,15 @@
 /**
  * Node editing tool — direct selection of path anchors and bezier handles.
  */
-import { Tool } from './base.js';
-import { buildPenPathD, parsePenAnchors } from '../geometry/pen-path.js';
+import { BaseTool } from './BaseTool.js';
+import { buildPenPathD, parsePenAnchors } from '../utils/geometry/pen-path.js';
 import { findItem } from '../core/state.js';
-import { applyTransform, getCanvasRect } from '../viewport.js';
+import { applyTransform, getCanvasRect } from '../core/Viewport.js';
 import { getCK } from '../render/renderer.js';
 
 const HIT_R = 6; // screen-px hit radius
 
-export class NodeTool extends Tool {
+export class Node extends BaseTool {
   get id()       { return 'node'; }
   get label()    { return 'Node'; }
   get shortcut() { return 'a'; }

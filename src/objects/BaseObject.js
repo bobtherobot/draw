@@ -1,5 +1,5 @@
 /**
- * ObjectType base class.
+ * BaseObject base class.
  *
  * Each shape type (path, free-text, text-block, group) is a stateless singleton
  * that extends this class. Shape data stays as plain POJOs for simple undo snapshotting.
@@ -8,7 +8,7 @@
  */
 import { nextId } from '../core/state.js';
 
-export class ObjectType {
+export class BaseObject {
   /** Unique type id matching shape.type. @type {string} */
   get id()    { throw new Error(`${this.constructor.name}: id not implemented`); }
 
@@ -102,11 +102,11 @@ export class ObjectType {
   // ── Companion object factory ─────────────────────────────────────────────────
 
   /**
-   * Create an optional AuxObject for per-type extra rendering.
+   * Create an optional Aux for per-type extra rendering.
    * Called once when the item is added to state.items[].
    * Return null (default) if this type needs no auxiliary rendering.
    * @param {object} item
-   * @returns {import('./aux-object.js').AuxObject | null}
+   * @returns {import('./aux-object.js').Aux | null}
    */
   createAuxObject(item) { return null; }
 }

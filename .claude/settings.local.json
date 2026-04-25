@@ -38,7 +38,25 @@
       "Bash(sed -n '44,55p' /home/bob/projects/draw/src/objects/group.js)",
       "Bash(sed -n '119,130p' /home/bob/projects/draw/src/objects/text-block.js)",
       "Bash(git -C /home/bob/projects/draw status)",
-      "Bash(git -C /home/bob/projects/draw log --oneline -3)"
+      "Bash(git -C /home/bob/projects/draw log --oneline -3)",
+      "Bash(git mv *)",
+      "Bash(sed -i \"s|'../geometry/|'../utils/geometry/|g\" src/objects/group.js src/objects/abstract-object.js src/objects/path.js src/objects/free-text.js src/tools/ellipse.js src/tools/pen.js src/tools/type.js src/tools/node.js src/tools/rect.js src/tools/select.js src/tools/transops.js)",
+      "Bash(sed -i \"s|'../geometry/|'../utils/geometry/|g\" src/render/selection.js)",
+      "Bash(sed -i \"s|'../geometry/|'../../utils/geometry/|g\" src/io/serializer.js)",
+      "Bash(sed -i \"s|from '../tools/snapshots.js'|from '../utils/snapshots.js'|g\" src/objects/abstract-object.js)",
+      "Bash(sed -i \"s|from './snapshots.js'|from '../utils/snapshots.js'|g\" src/tools/select.js src/tools/transops.js)",
+      "Bash(sed -i \"s|from './viewport.js'|from './core/Viewport.js'|g\" src/app.js src/main.js)",
+      "Bash(sed -i \"s|from './viewport.js'|from './Viewport.js'|g\" src/core/TextEdit.js)",
+      "Bash(sed -i \"s|from '../viewport.js'|from './Viewport.js'|g\" src/core/hit-test.js)",
+      "Bash(sed -i 's|from '\\\\''../viewport.js'\\\\''|from '\\\\''../core/Viewport.js'\\\\''|g' src/render/renderer.js src/render/selection.js src/render/selection-draw.js src/controls/toolbar.js src/controls/panel-manager.js src/controls/dialogs.js src/controls/keyboard.js src/tools/ellipse.js src/tools/node.js src/tools/pen.js src/tools/rect.js src/tools/zoom.js src/tools/type.js src/tools/select.js src/tools/typearea.js src/tools/hand.js src/io/io.js)",
+      "Bash(sed -i 's|from '\\\\''../textedit.js'\\\\''|from '\\\\''../core/TextEdit.js'\\\\''|g' src/render/renderer.js src/render/selection.js src/controls/keyboard.js src/tools/type.js src/tools/select.js src/tools/typearea.js)",
+      "Bash(git rm *)",
+      "Bash(sed -i 's|from '\\\\''./base.js'\\\\''|from '\\\\''../ObjectType.js'\\\\''|g' src/objects/types/ArtboardObjectType.js src/objects/types/PathObjectType.js src/objects/types/FreeTextObjectType.js src/objects/types/TextBlockObjectType.js src/objects/types/GroupObjectType.js)",
+      "Bash(sed -i 's|from '\\\\''../core/|from '\\\\''../../core/|g' src/objects/types/ArtboardObjectType.js src/objects/types/PathObjectType.js src/objects/types/FreeTextObjectType.js src/objects/types/TextBlockObjectType.js src/objects/types/GroupObjectType.js)",
+      "Bash(sed -i 's|from '\\\\''../render/|from '\\\\''../../render/|g' src/objects/types/PathObjectType.js)",
+      "Bash(sed -i 's|from '\\\\''../utils/|from '\\\\''../../utils/|g' src/objects/types/PathObjectType.js src/objects/types/FreeTextObjectType.js src/objects/types/GroupObjectType.js)",
+      "Bash(sed -i \"s|from './aux-object.js'|from '../AuxObject.js'|g\" src/objects/types/FreeTextAuxObject.js)",
+      "Bash(xargs sed *)"
     ]
   }
 }

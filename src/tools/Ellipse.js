@@ -1,9 +1,9 @@
-import { Tool } from './base.js';
-import { ellipseToPathD } from '../geometry/path-utils.js';
-import { applyTransform } from '../viewport.js';
+import { BaseTool } from './BaseTool.js';
+import { ellipseToPathD } from '../utils/geometry/path-utils.js';
+import { applyTransform } from '../core/Viewport.js';
 import { getCK } from '../render/renderer.js';
 
-export class EllipseTool extends Tool {
+export class Ellipse extends BaseTool {
   get id()       { return 'ellipse'; }
   get label()    { return 'Ellipse'; }
   get shortcut() { return 'e'; }
@@ -36,7 +36,7 @@ export class EllipseTool extends Tool {
     if (rx < 0.5 || ry < 0.5) return;
 
     const ctx   = this._ctx;
-    const ot    = ctx.getObjectType('path');
+    const ot    = ctx.getBaseObject('path');
     const shape = ot.createShape(
       { d: ellipseToPathD({ cx, cy, rx, ry }) },
       { ...ctx.state.currentStyle }

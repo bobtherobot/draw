@@ -1,11 +1,11 @@
-import { Tool } from './base.js';
-import { startEditing, isEditing, commitEditing, charIndexAtPoint, setTextareaSelection } from '../textedit.js';
+import { BaseTool } from './BaseTool.js';
+import { startEditing, isEditing, commitEditing, charIndexAtPoint, setTextareaSelection } from '../core/TextEdit.js';
 import { findItem, state, allDisplayItems } from '../core/state.js';
-import { rotatePoint } from '../geometry/path-utils.js';
-import { applyTransform } from '../viewport.js';
+import { rotatePoint } from '../utils/geometry/path-utils.js';
+import { applyTransform } from '../core/Viewport.js';
 import { getCK } from '../render/renderer.js';
 
-export class TypeTool extends Tool {
+export class Type extends BaseTool {
   get id()       { return 'type'; }
   get label()    { return 'Text'; }
   get shortcut() { return 't'; }
@@ -37,7 +37,7 @@ export class TypeTool extends Tool {
     const isOverText = shape && (shape.type === 'free-text' || shape.type === 'text-block');
     if (!isOverText) return;
 
-    const ot       = this._ctx.getObjectType(shape.type);
+    const ot       = this._ctx.getBaseObject(shape.type);
     const rotation = shape._rotation ?? 0;
     // For rotated shapes get the unrotated local bbox — we apply rotation via concat.
     const bb = rotation !== 0
@@ -92,7 +92,7 @@ export class TypeTool extends Tool {
     const textShapes = allDisplayItems().filter(s => s.type === 'free-text' || s.type === 'text-block');
     for (let i = textShapes.length - 1; i >= 0; i--) {
       const shape = textShapes[i];
-      const ot    = ctx.getObjectType(shape.type);
+      const ot    = ctx.getBaseObject(shape.type);
       if (ot.hitPart(shape, pos.x, pos.y, zoom)) {
         this._openTextEditor(shape, e.clientX, e.clientY);
         // Store the anchor index for drag-to-select (charIndexAtPoint uses
@@ -122,7 +122,7 @@ export class TypeTool extends Tool {
       onInput: () => ctx.render(),
       onCommit: (text) => {
         if (!text.trim()) return;
-        const ot    = ctx.getObjectType('free-text');
+        const ot    = ctx.getBaseObject('free-text');
         const shape = ot.createShape(
           { x: pos.x, y: pos.y, _text: text, _fontSize: fontSize, _fontFamily: fontFamily, _textAlign: textAlign },
           { fill: fill === 'none' ? '#000000' : fill, stroke: 'none', strokeWidth: 1 },
@@ -174,7 +174,7 @@ export class TypeTool extends Tool {
         // Clear selection before execute so do()'s render doesn't flash the overlay.
         ctx.state.selection = new Set();
         ctx.execute({
-          do()   { const s = findItem(shapeId); if (s) { s._text = text; ctx.getObjectType(s.type)?.syncRotDisplay?.(s); ctx.render(); } },
+          do()   { const s = findItem(shapeId); if (s) { s._text = text; ctx.getBaseObject(s.type)?.syncRotDisplay?.(s); ctx.render(); } },
           undo() { const s = findItem(shapeId); if (s) { s._text = snap._text; ctx.render(); } },
         });
       },

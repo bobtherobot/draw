@@ -4,7 +4,7 @@
  * Each display item (type !== 'group' && type !== 'artboard') gets a companion
  * set created at item-birth time:
  *
- *   { abstract: AbstractObject, overlay: OverlayObject, aux: AuxObject | null }
+ *   { abstract: Abstract, overlay: Overlay, aux: Aux | null }
  *
  * Groups and artboards never receive companions — they are structural containers.
  *
@@ -12,15 +12,15 @@
  * and never snapshot-cloned — it is purely runtime state.
  *
  * Key invariant: item POJOs in state.items[] are always mutated in-place, never
- * replaced.  AbstractObject holds a live reference to the POJO; replacing a POJO
+ * replaced.  Abstract holds a live reference to the POJO; replacing a POJO
  * object (state.items[i] = newObject) instead of mutating it will silently break
  * the companion. Add/remove items only via push/filter on the array.
  */
-import { AbstractObject } from '../objects/abstract-object.js';
-import { OverlayObject }  from '../objects/overlay-object.js';
-import { getObjectType }  from './registry.js';
+import { Abstract } from '../objects/Abstract.js';
+import { Overlay }  from '../objects/Overlay.js';
+import { getBaseObject }  from './registry.js';
 
-/** @type {Map<string, {abstract: AbstractObject, overlay: OverlayObject, aux: import('../objects/aux-object.js').AuxObject|null}>} */
+/** @type {Map<string, {abstract: Abstract, overlay: Overlay, aux: import('../objects/Aux.js').Aux|null}>} */
 const _map = new Map();
 
 /** @param {object} item */
@@ -35,9 +35,9 @@ function _isDisplay(item) {
  */
 export function createCompanions(item) {
   if (!_isDisplay(item) || _map.has(item.id)) return;
-  const ot      = getObjectType(item.type);
-  const abstract = new AbstractObject(item, ot);
-  const overlay  = new OverlayObject(item.id);
+  const ot      = getBaseObject(item.type);
+  const abstract = new Abstract(item, ot);
+  const overlay  = new Overlay(item.id);
   const aux      = ot?.createAuxObject?.(item) ?? null;
   _map.set(item.id, { abstract, overlay, aux });
 }
@@ -54,7 +54,7 @@ export function destroyCompanions(id) {
  * Get companion objects for an item id.
  * Returns null for groups, artboards, and unknown ids.
  * @param {string} id
- * @returns {{abstract: AbstractObject, overlay: OverlayObject, aux: import('../objects/aux-object.js').AuxObject|null} | null}
+ * @returns {{abstract: Abstract, overlay: Overlay, aux: import('../objects/Aux.js').Aux|null} | null}
  */
 export function getCompanions(id) {
   return _map.get(id) ?? null;

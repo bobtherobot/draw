@@ -1,19 +1,19 @@
 /**
  * TransformController — scale, rotate, and move-origin operations.
  *
- * Owned by SelectTool; receives the AppContext at construction.
+ * Owned by Select; receives the AppContext at construction.
  *
  * Per-item snapshot lifecycle and geometry math are handled by each item's
- * AbstractObject (AbstractObject.beginOp / applyX / commitOp).
+ * Abstract (Abstract.beginOp / applyX / commitOp).
  * This controller is responsible only for shared/selection-level state:
  *   • computing sx/sy/ox/oy, delta, pivot from mouse position
  *   • maintaining selectionRotation / activeRotation on ctx.state
  *   • building the undo/redo command from the per-item { pre, post } pairs
  */
 import { findItem }                             from '../core/state.js';
-import { unionBBoxes }                          from '../geometry/bbox.js';
-import { rotatePoint }                          from '../geometry/transform.js';
-import { restoreShape }                         from './snapshots.js';
+import { unionBBoxes }                          from '../utils/geometry/bbox.js';
+import { rotatePoint }                          from '../utils/geometry/transform.js';
+import { restoreShape }                         from '../utils/snapshots.js';
 import { getCompanions }                        from '../core/item-registry.js';
 
 const SCALE_HANDLES = ['nw','n','ne','e','se','s','sw','w'];
@@ -293,7 +293,7 @@ export class TransformController {
     for (const id of ctx.state.selection) {
       const shape = findItem(id);
       if (!shape) continue;
-      const ot = ctx.getObjectType(shape.type);
+      const ot = ctx.getBaseObject(shape.type);
       const bb = ot?.getBBox(shape);
       if (bb) bbs.push(bb);
     }

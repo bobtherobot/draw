@@ -1,5 +1,5 @@
 /**
- * AbstractObject — pure-math companion for a display item. Never rendered.
+ * Abstract — pure-math companion for a display item. Never rendered.
  *
  * Holds a live reference to the item POJO in state.items[]. Item POJOs are
  * always mutated in-place (never replaced), so this reference stays valid
@@ -10,13 +10,13 @@
  *   applyX(...) — restore from snapshot + apply per-item math (called every frame during drag)
  *   commitOp()  — return { id, pre, post } POJO pair ready for ctx.execute()
  *
- * TransformController (transops.js) and SelectTool (select.js) call these
+ * TransformController (transops.js) and Select (select.js) call these
  * methods instead of doing their own snapshot/restore/math loops.
  */
-import { cloneShape, restoreShape } from '../tools/snapshots.js';
-import { rotatePathD, scalePathD, rotatePoint } from '../geometry/transform.js';
+import { cloneShape, restoreShape } from '../utils/snapshots.js';
+import { rotatePathD, scalePathD, rotatePoint } from '../utils/geometry/transform.js';
 
-export class AbstractObject {
+export class Abstract {
   constructor(item, objectType) {
     this._item = item;
     this._ot   = objectType;
@@ -110,7 +110,7 @@ export class AbstractObject {
         delete shape._rotDisplay;
       }
     } else {
-      // Unrotated or non-path shape: delegate to ObjectType
+      // Unrotated or non-path shape: delegate to BaseObject
       this._ot?.scale(shape, sx, sy, ox, oy);
       this._ot?.syncRotDisplay?.(shape);
     }

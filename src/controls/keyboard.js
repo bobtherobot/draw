@@ -10,9 +10,9 @@ import { getTool, getAllTools, getAllKeybindings } from '../core/registry.js';
 import { setModifier, registerModifierOverride } from '../core/modifiers.js';
 import { render }               from '../render/renderer.js';
 import { undo, redo, canUndo, canRedo } from '../core/history.js';
-import { zoomAt, fitToArtboard } from '../viewport.js';
+import { zoomAt, fitToArtboard } from '../core/Viewport.js';
 import { newDocument, openSVG, saveSVG } from '../io/io.js';
-import { isEditing } from '../textedit.js';
+import { isEditing } from '../core/TextEdit.js';
 
 // Register built-in modifier overrides (Space → hand, Meta → select, Meta+Alt → zoom)
 registerModifierOverride(['space'], 'hand',   10);
@@ -61,7 +61,7 @@ function _onKeyDown(e) {
   if ((e.metaKey || e.ctrlKey) && e.key === '-')                     { e.preventDefault(); zoomAt(1/1.5); return; }
   if ((e.metaKey || e.ctrlKey) && e.key === '0')                     { e.preventDefault(); fitToArtboard(); return; }
 
-  // Tool shortcuts (single key, no modifier) — registered per tool
+  // BaseTool shortcuts (single key, no modifier) — registered per tool
   if (!e.metaKey && !e.ctrlKey && !e.altKey) {
     const key = e.key.toLowerCase();
     for (const tool of _getRegisteredTools()) {

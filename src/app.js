@@ -6,7 +6,7 @@
 import { state }          from './core/state.js';
 import { emit }           from './core/events.js';
 import { setIconTheme }   from './core/icons.js';
-import { invalidateRect } from './viewport.js';
+import { invalidateRect } from './core/Viewport.js';
 
 /** Build and mount the complete application shell into #app. */
 export function buildApp() {

@@ -1,9 +1,9 @@
-import { Tool } from './base.js';
-import { rectToPathD } from '../geometry/path-utils.js';
-import { applyTransform } from '../viewport.js';
+import { BaseTool } from './BaseTool.js';
+import { rectToPathD } from '../utils/geometry/path-utils.js';
+import { applyTransform } from '../core/Viewport.js';
 import { getCK } from '../render/renderer.js';
 
-export class RectTool extends Tool {
+export class Rect extends BaseTool {
   get id()       { return 'rect'; }
   get label()    { return 'Rectangle'; }
   get shortcut() { return 'm'; }
@@ -36,7 +36,7 @@ export class RectTool extends Tool {
     if (w < 1 || h < 1) return;
 
     const ctx   = this._ctx;
-    const ot    = ctx.getObjectType('path');
+    const ot    = ctx.getBaseObject('path');
     const shape = ot.createShape(
       { d: rectToPathD({ x, y, width: w, height: h }) },
       { ...ctx.state.currentStyle }

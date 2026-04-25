@@ -15,12 +15,12 @@
  *  11. emit('render') → panel refreshes
  */
 import { state, effectiveVisible, allDisplayItems } from '../core/state.js';
-import { getObjectType, getMode }  from '../core/registry.js';
+import { getBaseObject, getMode }  from '../core/registry.js';
 import { emit }                    from '../core/events.js';
-import { applyTransform }          from '../viewport.js';
-import { OverlayManager }          from './overlay.js';
+import { applyTransform }          from '../core/Viewport.js';
+import { OverlayManager }          from './OverlayManager.js';
 import { renderSelection }         from './selection.js';
-import { getEditingShapeId }       from '../textedit.js';
+import { getEditingShapeId }       from '../core/TextEdit.js';
 import { syncCompanions, getCompanions } from '../core/item-registry.js';
 
 let _CK             = null;  // CanvasKit instance
@@ -76,7 +76,7 @@ export function render() {
   if (!_ckCanvas) return;
 
   const activeMode = getMode(state.activeMode);
-  if (activeMode) activeMode.beforeRender({ state, getObjectType });
+  if (activeMode) activeMode.beforeRender({ state, getBaseObject });
 
   // ── Doc-space pass ────────────────────────────────────────────────────────
   _ckCanvas.clear(_CK.TRANSPARENT);
@@ -90,7 +90,7 @@ export function render() {
   _ckCanvas.restore();
 
   // ── Screen-space pass ─────────────────────────────────────────────────────
-  renderSelection(_ckCanvas, state, getObjectType);
+  renderSelection(_ckCanvas, state, getBaseObject);
   _overlayManager.flushAll(_ckCanvas);
 
   // Submit GPU commands
@@ -99,7 +99,7 @@ export function render() {
   // Text layer — draw text shapes using Canvas 2D (browser handles font lookup)
   _renderTextLayer();
 
-  if (activeMode) activeMode.afterRender({ state, getObjectType });
+  if (activeMode) activeMode.afterRender({ state, getBaseObject });
   emit('render', null);
 }
 
@@ -189,7 +189,7 @@ function _drawTextNodes(ctx, nodes, editingId) {
       _drawTextNodes(ctx, children, editingId);
     } else {
       if (item.id !== editingId) {
-        const ot = getObjectType(item.type);
+        const ot = getBaseObject(item.type);
         ot?.drawCanvas2D?.(ctx, item);
         const comps = getCompanions(item.id);
         if (comps?.aux) {
@@ -229,7 +229,7 @@ function _drawNodes(nodes, activeMode, viewState, editingId) {
     } else {
       // Display item — skip if currently being text-edited
       if (item.id !== editingId) {
-        const ot = getObjectType(item.type);
+        const ot = getBaseObject(item.type);
         if (ot) {
           const modeStyle  = activeMode?.resolveStyle(item, state) ?? null;
           const renderItem = modeStyle
@@ -254,7 +254,7 @@ function _drawWireframeDots(activeMode) {
   const r = 3 / state.viewport.zoom;
   for (const shape of allDisplayItems()) {
     if (!effectiveVisible(shape)) continue;
-    const ot = getObjectType(shape.type);
+    const ot = getBaseObject(shape.type);
     const pts = ot?.getWireframePoints?.(shape) ?? [];
     for (const { x, y } of pts) _ckCanvas.drawCircle(x, y, r, paint);
   }

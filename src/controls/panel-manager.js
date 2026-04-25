@@ -3,7 +3,7 @@
  * collapsible sub-panels, drag-to-reorder, drag-to-float, and resize.
  * State persisted to localStorage.
  */
-import { invalidateRect }             from '../viewport.js';
+import { invalidateRect }             from '../core/Viewport.js';
 import { loadSection, saveSection }   from '../core/settings.js';
 import { getIconSync }                from '../core/icons.js';
 

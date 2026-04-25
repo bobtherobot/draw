@@ -6,9 +6,9 @@
 import { registerDispatch } from './intent.js';
 import { registerModifierOverride } from './modifiers.js';
 import { on, emit } from './events.js';
-import { ObjectType } from '../objects/base.js';
-import { Tool }       from '../tools/base.js';
-import { Mode }       from '../modes/base.js';
+import { BaseObject } from '../objects/BaseObject.js';
+import { BaseTool }       from '../tools/BaseTool.js';
+import { Mode }       from '../modes/Mode.js';
 
 const _objectTypes  = new Map();
 const _tools        = new Map();
@@ -18,13 +18,13 @@ const _keybindings  = [];
 
 // ── Registration
 
-/** @param {import('../objects/base.js').ObjectType} ot */
-export function registerObjectType(ot) { _objectTypes.set(ot.id, ot); }
+/** @param {import('../objects/BaseObject.js').BaseObject} ot */
+export function registerBaseObject(ot) { _objectTypes.set(ot.id, ot); }
 
-/** @param {import('../tools/base.js').Tool} tool */
+/** @param {import('../tools/BaseTool.js').BaseTool} tool */
 export function registerTool(tool)     { _tools.set(tool.id, tool); }
 
-/** @param {import('../modes/base.js').Mode} mode */
+/** @param {import('../modes/Mode.js').Mode} mode */
 export function registerMode(mode)     { _modes.set(mode.id, mode); }
 
 /**
@@ -49,12 +49,12 @@ export function registerKeybindings(bindings) { _keybindings.push(...bindings); 
 
 // ── Getters
 
-export const getObjectType  = id => _objectTypes.get(id) ?? null;
+export const getBaseObject  = id => _objectTypes.get(id) ?? null;
 export const getTool        = id => _tools.get(id) ?? null;
 export const getMode        = id => _modes.get(id) ?? null;
 export const getPanel       = id => _panels.get(id) ?? null;
 
-export const getAllObjectTypes = () => [..._objectTypes.values()];
+export const getAllBaseObjects = () => [..._objectTypes.values()];
 export const getAllTools       = () => [..._tools.values()];
 export const getAllModes       = () => [..._modes.values()];
 export const getAllPanels      = () => [..._panels.values()];
@@ -68,7 +68,7 @@ export const getAllKeybindings = () => [..._keybindings];
  */
 export function installPlugin(plugin) {
   plugin.install({
-    registerObjectType,
+    registerBaseObject,
     registerTool,
     registerMode,
     registerPanel,
@@ -77,8 +77,8 @@ export function installPlugin(plugin) {
     registerModifierOverride,
     on,
     emit,
-    ObjectType,
-    Tool,
+    BaseObject,
+    BaseTool,
     Mode,
   });
 }

@@ -1,7 +1,7 @@
 /**
  * Modifier-key tracking and effective-tool resolution.
  *
- * Tool-switching overrides (registered, higher priority wins):
+ * BaseTool-switching overrides (registered, higher priority wins):
  *   Meta (Cmd)   → 'select'
  *   Space        → 'hand'
  *   Meta + Alt   → 'zoom'

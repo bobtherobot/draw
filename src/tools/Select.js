@@ -5,17 +5,17 @@
  * Transform operations (scale, rotate, move-origin) are delegated to
  * TransformController in transops.js.
  */
-import { Tool } from './base.js';
-import { startEditing, isEditing } from '../textedit.js';
-import { unionBBoxes } from '../geometry/bbox.js';
+import { BaseTool } from './BaseTool.js';
+import { startEditing, isEditing } from '../core/TextEdit.js';
+import { unionBBoxes } from '../utils/geometry/bbox.js';
 import { effectiveVisible, effectiveLocked, allDisplayItems, findItem, sanitizeItems } from '../core/state.js';
-import { rotatePoint } from '../geometry/path-utils.js';
+import { rotatePoint } from '../utils/geometry/path-utils.js';
 import { hitTest } from '../core/hit-test.js';
 import { handleAtPoint } from '../render/selection.js';
-import { applyTransform } from '../viewport.js';
+import { applyTransform } from '../core/Viewport.js';
 import { getCK } from '../render/renderer.js';
-import { TransformController } from './transops.js';
-import { cloneShape, restoreShape } from './snapshots.js';
+import { TransformController } from './TransformController.js';
+import { cloneShape, restoreShape } from '../utils/snapshots.js';
 import { getCompanions } from '../core/item-registry.js';
 
 const DBL_CLICK_MS  = 400;
@@ -35,7 +35,7 @@ function _handleCursor(part, rotAngle, active) {
   return _RESIZE_CURSORS[Math.round(eff / 45) % 4];
 }
 
-export class SelectTool extends Tool {
+export class Select extends BaseTool {
   get id()       { return 'select'; }
   get label()    { return 'Select'; }
   get shortcut() { return 'v'; }
@@ -256,7 +256,7 @@ export class SelectTool extends Tool {
     for (const shape of allDisplayItems()) {
       if (!effectiveVisible(shape)) continue;
       if (effectiveLocked(shape)) continue;
-      const ot = ctx.getObjectType(shape.type);
+      const ot = ctx.getBaseObject(shape.type);
       const bb = ot?.getBBox(shape);
       if (!bb) continue;
       if (bb.x >= x0 && bb.x + bb.width  <= x1 &&
@@ -303,7 +303,7 @@ export class SelectTool extends Tool {
         const s = findItem(shapeId);
         if (s) s._text = snap._text;
         ctx.execute({
-          do()   { const s = findItem(shapeId); if (s) { s._text = text; ctx.getObjectType(s.type)?.syncRotDisplay?.(s); ctx.render(); } },
+          do()   { const s = findItem(shapeId); if (s) { s._text = text; ctx.getBaseObject(s.type)?.syncRotDisplay?.(s); ctx.render(); } },
           undo() { const s = findItem(shapeId); if (s) { restoreShape(s, snap); ctx.render(); } },
         });
       },
@@ -347,7 +347,7 @@ export class SelectTool extends Tool {
 
   _shapeIdAt(screenX, screenY) {
     const ctx  = this._ctx;
-    const hit  = hitTest(screenX, screenY, ctx.getObjectType);
+    const hit  = hitTest(screenX, screenY, ctx.getBaseObject);
     if (!hit || hit.isHandle || !hit.shape) return null;
     if (effectiveLocked(hit.shape)) return null;
     return hit.shape.id;

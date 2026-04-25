@@ -5,8 +5,8 @@
  * Point text: auto-expands width and height via a mirror <span>.
  * Area text:  fixed size, scrollTop pinned to 0 so overflow exits at the bottom.
  */
-import { docToScreen, getCanvasRect } from './viewport.js';
-import { state } from './core/state.js';
+import { docToScreen, getCanvasRect } from './Viewport.js';
+import { state } from './state.js';
 
 const TA_ID     = 'text-edit-ta';
 const MIRROR_ID = 'text-edit-mirror';

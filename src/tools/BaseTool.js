@@ -1,5 +1,5 @@
 /**
- * Tool base class.
+ * BaseTool base class.
  *
  * Tools are stateful singletons held by the registry.
  * They receive an AppContext at init() instead of importing from core directly.
@@ -11,7 +11,7 @@
  * @property {import('../core/history.js').execute}   execute
  * @property {Function}  render        - () => void
  * @property {Function}  screenToDoc   - (sx, sy) => {x, y}
- * @property {Function}  getObjectType - (typeId) => ObjectType|null
+ * @property {Function}  getBaseObject - (typeId) => BaseObject|null
  * @property {Function}  setActiveTool - (toolId) => void
  * @property {Function}  emit          - (event, data) => void
  * @property {Function}  getModifiers  - () => modifiers snapshot
@@ -28,7 +28,7 @@
  * @property {Function} [deactivate] - () => void
  */
 
-export class Tool {
+export class BaseTool {
   /** Unique tool id. @type {string} */
   get id()       { throw new Error(`${this.constructor.name}: id not implemented`); }
 

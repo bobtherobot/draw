@@ -9,14 +9,14 @@
  *   Enter / dblclick   → finish open path
  *   Escape             → cancel
  */
-import { Tool } from './base.js';
-import { buildPenPathD } from '../geometry/pen-path.js';
-import { applyTransform, getCanvasRect } from '../viewport.js';
+import { BaseTool } from './BaseTool.js';
+import { buildPenPathD } from '../utils/geometry/pen-path.js';
+import { applyTransform, getCanvasRect } from '../core/Viewport.js';
 import { getCK } from '../render/renderer.js';
 
 const CLOSE_RADIUS = 8; // screen px
 
-export class PenTool extends Tool {
+export class Pen extends BaseTool {
   get id()       { return 'pen'; }
   get label()    { return 'Pen'; }
   get shortcut() { return 'p'; }
@@ -231,7 +231,7 @@ export class PenTool extends Tool {
 
     const d     = buildPenPathD(this._anchors, closePath);
     const ctx   = this._ctx;
-    const ot    = ctx.getObjectType('path');
+    const ot    = ctx.getBaseObject('path');
     const shape = ot.createShape({ d }, { ...ctx.state.currentStyle });
     shape.parentId = ctx.state.activeItemId;
 

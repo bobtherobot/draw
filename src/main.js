@@ -4,7 +4,7 @@
  */
 import { buildApp, applyTheme }  from './app.js';
 import { state }                 from './core/state.js';
-import { fitToArtboard }         from './viewport.js';
+import { fitToArtboard }         from './core/Viewport.js';
 import { initIO }                from './io/io.js';
 
 // Built-in registrations (each module self-registers on import)

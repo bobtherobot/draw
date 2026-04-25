@@ -3,7 +3,7 @@
  */
 import { state, nextId, sanitizeItems } from '../core/state.js';
 import { emit }                  from '../core/events.js';
-import { fitToArtboard }         from '../viewport.js';
+import { fitToArtboard }         from '../core/Viewport.js';
 import { serializeJSON, deserializeJSON, exportSVG as buildSVG, importSVG } from './serializer.js';
 import { rebuildAll }            from '../core/item-registry.js';
 

@@ -1,7 +1,7 @@
-import { ObjectType }        from './base.js';
-import { nextId }            from '../core/state.js';
-import { rotatePoint }       from '../geometry/path-utils.js';
-import { FreeTextAuxObject } from './free-text-aux.js';
+import { BaseObject }        from '../BaseObject.js';
+import { nextId }            from '../../core/state.js';
+import { rotatePoint }       from '../../utils/geometry/path-utils.js';
+import { FreeTextAux } from './FreeTextAux.js';
 
 // ── Canvas measurement ────────────────────────────────────────────────────────
 
@@ -21,9 +21,9 @@ export function measureTextWidth(text, fontSize, fontFamily) {
   return maxW;
 }
 
-// ── ObjectType ────────────────────────────────────────────────────────────────
+// ── BaseObject ────────────────────────────────────────────────────────────────
 
-export class FreeTextObjectType extends ObjectType {
+export class FreeText extends BaseObject {
   get id()    { return 'free-text'; }
   get label() { return 'Text'; }
   get icon()  { return 'object-free-text'; }
@@ -302,7 +302,7 @@ export class FreeTextObjectType extends ObjectType {
   }
 
   createAuxObject(_item) {
-    return new FreeTextAuxObject();
+    return new FreeTextAux();
   }
 }
 

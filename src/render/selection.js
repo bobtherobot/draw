@@ -5,7 +5,7 @@
  * space (canvas.width = CSS width × devicePixelRatio after the DPR fix).
  *
  * Responsibilities after Phase 3:
- *   - Single selection (no activeRotation) → delegates to OverlayObject.draw()
+ *   - Single selection (no activeRotation) → delegates to Overlay.draw()
  *   - activeRotation (live rotate drag)    → drawn here (collection overlay)
  *   - Multi-selection                      → drawn here (union bbox / selectionRotation)
  *
@@ -13,9 +13,9 @@
  * compare directly against clientX/clientY offsets from getBoundingClientRect().
  */
 import { state, findItem }  from '../core/state.js';
-import { unionBBoxes }       from '../geometry/bbox.js';
-import { getEditingShapeId } from '../textedit.js';
-import { getCanvasRect }     from '../viewport.js';
+import { unionBBoxes }       from '../utils/geometry/bbox.js';
+import { getEditingShapeId } from '../core/TextEdit.js';
+import { getCanvasRect }     from '../core/Viewport.js';
 import { getCK }             from './renderer.js';
 import { getCompanions }     from '../core/item-registry.js';
 import {
@@ -26,7 +26,7 @@ import {
 } from './selection-draw.js';
 
 // Handle hit-areas registered each frame by renderSelection() for collection handles.
-// Per-item handles live in each OverlayObject._localHandles.
+// Per-item handles live in each Overlay._localHandles.
 const _handles = [];
 
 /**
@@ -57,9 +57,9 @@ export function handleAtPoint(screenX, screenY) {
  * Render selection visuals onto ckCanvas (physical canvas-pixel space).
  * @param {object} ckCanvas  CanvasKit Canvas
  * @param {object} stateArg
- * @param {Function} getObjectType
+ * @param {Function} getBaseObject
  */
-export function renderSelection(ckCanvas, stateArg, getObjectType) {
+export function renderSelection(ckCanvas, stateArg, getBaseObject) {
   _handles.length = 0;
   if (stateArg.selection.size === 0) return;
 
@@ -92,7 +92,7 @@ export function renderSelection(ckCanvas, stateArg, getObjectType) {
   }
   if (!selected.length) return;
 
-  // ── Single selection → delegate to OverlayObject ──────────────────────────
+  // ── Single selection → delegate to Overlay ──────────────────────────
   if (selected.length === 1) {
     const id    = selected[0].id;
     const comps = getCompanions(id);
@@ -121,7 +121,7 @@ export function renderSelection(ckCanvas, stateArg, getObjectType) {
     originY = uOrigin?.y ?? rotData.center.y;
   } else {
     const bboxes = selected
-      .map(s => getObjectType(s.type)?.getBBox(s))
+      .map(s => getBaseObject(s.type)?.getBBox(s))
       .filter(Boolean);
     const bb = unionBBoxes(bboxes);
     if (!bb) return;

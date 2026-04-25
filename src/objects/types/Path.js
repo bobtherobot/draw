@@ -1,12 +1,12 @@
-import { ObjectType } from './base.js';
-import { nextId } from '../core/state.js';
-import { parsePathD, buildPathD } from '../geometry/path-utils.js';
-import { translatePathD, scalePathD, rotatePathD, rotatePoint } from '../geometry/transform.js';
-import { getCK } from '../render/renderer.js';
+import { BaseObject } from '../BaseObject.js';
+import { nextId } from '../../core/state.js';
+import { parsePathD, buildPathD } from '../../utils/geometry/path-utils.js';
+import { translatePathD, scalePathD, rotatePathD, rotatePoint } from '../../utils/geometry/transform.js';
+import { getCK } from '../../render/renderer.js';
 
 const HIT_TOLERANCE = 4; // px in doc space (scaled by zoom below)
 
-export class PathObjectType extends ObjectType {
+export class Path extends BaseObject {
   get id()    { return 'path'; }
   get label() { return 'Path'; }
   get icon()  { return 'object-path'; }

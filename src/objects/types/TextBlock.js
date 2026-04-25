@@ -1,5 +1,5 @@
-import { ObjectType } from './base.js';
-import { nextId } from '../core/state.js';
+import { BaseObject } from '../BaseObject.js';
+import { nextId } from '../../core/state.js';
 
 // Cache for wrapText results — keyed by "text|fontSize|fontFamily|boxWidth"
 const _wrapCache = new Map();
@@ -39,7 +39,7 @@ function wrapText(text, fontSize, fontFamily, boxWidth) {
   return lines;
 }
 
-export class TextBlockObjectType extends ObjectType {
+export class TextBlock extends BaseObject {
   get id()    { return 'text-block'; }
   get label() { return 'Text Block'; }
   get icon()  { return 'object-text-block'; }

@@ -1,7 +1,7 @@
-import { Tool } from './base.js';
-import { zoomAt } from '../viewport.js';
+import { BaseTool } from './BaseTool.js';
+import { zoomAt } from '../core/Viewport.js';
 
-export class ZoomTool extends Tool {
+export class Zoom extends BaseTool {
   get id()       { return 'zoom'; }
   get label()    { return 'Zoom'; }
   get shortcut() { return 'z'; }

@@ -1,9 +1,9 @@
-import { Tool } from './base.js';
-import { startEditing, isEditing } from '../textedit.js';
-import { applyTransform } from '../viewport.js';
+import { BaseTool } from './BaseTool.js';
+import { startEditing, isEditing } from '../core/TextEdit.js';
+import { applyTransform } from '../core/Viewport.js';
 import { getCK } from '../render/renderer.js';
 
-export class TypeAreaTool extends Tool {
+export class TypeArea extends BaseTool {
   get id()       { return 'type-area'; }
   get label()    { return 'Area Text'; }
   get shortcut() { return null; }
@@ -46,7 +46,7 @@ export class TypeAreaTool extends Tool {
       boxHeight: h,
       onCommit: (text) => {
         if (!text.trim()) return;
-        const ot    = ctx.getObjectType('text-block');
+        const ot    = ctx.getBaseObject('text-block');
         const shape = ot.createShape(
           { x, y, _text: text, _fontSize: 14, _fontFamily: 'sans-serif', _boxWidth: w, _boxHeight: h },
           { fill: ctx.state.currentStyle.fill ?? '#000000', stroke: 'none', strokeWidth: 1 }

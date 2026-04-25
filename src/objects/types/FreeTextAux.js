@@ -1,15 +1,15 @@
 /**
- * FreeTextAuxObject — Canvas 2D guides for free-text shapes.
+ * FreeTextAux — Canvas 2D guides for free-text shapes.
  *
  * Renders when the shape is selected or hovered:
  *   • A baseline line at the first-line baseline, spanning the text width.
  *   • A small anchor square at (attrs.x, baseline) — the alignment axis point.
  *
- * Uses the exact same transform (rotation + scale) as FreeTextObjectType.drawCanvas2D()
+ * Uses the exact same transform (rotation + scale) as FreeText.drawCanvas2D()
  * so the guides always align with the rendered text.
  */
-import { AuxObject }         from './aux-object.js';
-import { measureTextWidth }  from './free-text.js';
+import { Aux }         from '../Aux.js';
+import { measureTextWidth }  from './FreeText.js';
 
 const ANCHOR_HALF = 3;  // half-side of anchor square in CSS px (scaled by 1/zoom)
 
@@ -17,7 +17,7 @@ function _css(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
-export class FreeTextAuxObject extends AuxObject {
+export class FreeTextAux extends Aux {
   drawCanvas2D(ctx, item, abstract, viewState, appState) {
     const isSelected = appState.selection.has(item.id);
     const isHovered  = appState.hover?.shape?.id === item.id;
@@ -55,7 +55,7 @@ export class FreeTextAuxObject extends AuxObject {
 
     ctx.save();
 
-    // Mirror FreeTextObjectType.drawCanvas2D() transforms exactly.
+    // Mirror FreeText.drawCanvas2D() transforms exactly.
     if (rotation !== 0) {
       ctx.translate(rotCx, rotCy);
       ctx.rotate(rotation * Math.PI / 180);

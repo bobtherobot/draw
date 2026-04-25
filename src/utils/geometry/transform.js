@@ -1,6 +1,6 @@
 /**
  * Shape geometry transformations.
- * Used by ObjectType subclasses — not called directly by tools.
+ * Used by BaseObject subclasses — not called directly by tools.
  */
 import { parsePathD, buildPathD, rotatePathD, rotatePoint } from './path-utils.js';
 

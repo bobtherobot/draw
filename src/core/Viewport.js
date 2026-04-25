@@ -2,8 +2,8 @@
  * Pan, zoom, coordinate conversion.
  * All shape positions are in document space; this module converts to/from screen space.
  */
-import { state, getActiveArtboard } from './core/state.js';
-import { emit } from './core/events.js';
+import { state, getActiveArtboard } from './state.js';
+import { emit } from './events.js';
 
 const MIN_ZOOM = 0.05;
 const MAX_ZOOM = 64;

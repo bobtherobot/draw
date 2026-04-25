@@ -1,8 +1,8 @@
-import { Tool } from './base.js';
+import { BaseTool } from './BaseTool.js';
 
 const _canvas = () => document.getElementById('canvas');
 
-export class HandTool extends Tool {
+export class Hand extends BaseTool {
   get id()       { return 'hand'; }
   get label()    { return 'Hand'; }
   get shortcut() { return 'h'; }

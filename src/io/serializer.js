@@ -9,8 +9,8 @@
  * IDs from the file are never trusted — this guarantees uniqueness when
  * multiple documents are opened in the same session.
  */
-import { getObjectType } from '../core/registry.js';
-import { rectToPathD, ellipseToPathD } from '../geometry/path-utils.js';
+import { getBaseObject } from '../core/registry.js';
+import { rectToPathD, ellipseToPathD } from '../utils/geometry/path-utils.js';
 import { nextId, sanitizeItems } from '../core/state.js';
 
 // ── JSON (native .draw format) ────────────────────────────────────────────────
@@ -180,7 +180,7 @@ function _buildExportTree(items) {
 function _renderExportNode(node, indent) {
   const { item, children } = node;
   const prefix = '  '.repeat(indent);
-  const ot     = getObjectType(item.type);
+  const ot     = getBaseObject(item.type);
 
   if (item.type === 'group' || children.length > 0) {
     let out = `${prefix}<g>\n`;
@@ -205,7 +205,7 @@ function _elementToItem(el) {
   if (tag === 'ellipse') return _legacyEllipse(el);
 
   for (const typeId of ['text-block', 'free-text', 'path', 'group']) {
-    const ot   = getObjectType(typeId);
+    const ot   = getBaseObject(typeId);
     if (!ot) continue;
     const item = ot.fromSVGElement(el);
     if (item) return item;

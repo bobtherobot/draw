@@ -1,7 +1,7 @@
-import { ObjectType } from './base.js';
-import { nextId } from '../core/state.js';
+import { BaseObject } from '../BaseObject.js';
+import { nextId } from '../../core/state.js';
 
-export class ArtboardObjectType extends ObjectType {
+export class Artboard extends BaseObject {
   get id()    { return 'artboard'; }
   get label() { return 'Artboard'; }
   get icon()  { return 'object-artboard'; }

@@ -4,7 +4,7 @@
 import { state, getActiveArtboard } from '../core/state.js';
 import { render }         from '../render/renderer.js';
 import { applyTheme }     from '../app.js';
-import { fitToArtboard }  from '../viewport.js';
+import { fitToArtboard }  from '../core/Viewport.js';
 import { saveSettings, exportSettings, importSettings } from '../core/settings.js';
 
 // ── Shared helpers ────────────────────────────────────────────────────────────

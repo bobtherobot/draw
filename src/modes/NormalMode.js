@@ -1,4 +1,4 @@
-import { Mode } from './base.js';
+import { Mode } from './Mode.js';
 
 export class NormalMode extends Mode {
   get id()    { return 'normal'; }

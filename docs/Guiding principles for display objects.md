@@ -1,5 +1,5 @@
 
-# Guiding principle for display objects (shapes, text, etc)
+# Guiding principles for display objects (shapes, text, etc)
 
 When we initially create an object (on the stage), we should establish and initialize:
 

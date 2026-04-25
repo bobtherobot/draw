@@ -1,6 +1,6 @@
 /**
  * Pure drawing helpers shared by selection.js (collection handles) and
- * OverlayObject (per-item handles).  No imports from renderer, state, or
+ * Overlay (per-item handles).  No imports from renderer, state, or
  * item-registry — safe to import from any layer.
  */
 
@@ -149,7 +149,7 @@ export function buildHandles(bx, by, bw, bh, rot) {
 
 /**
  * Hit-test a CSS-pixel canvas position against a handle list.
- * Shared by OverlayObject.hitAtPoint() and selection.handleAtPoint().
+ * Shared by Overlay.hitAtPoint() and selection.handleAtPoint().
  * @param {number} cx  canvas-relative CSS x (clientX - canvasRect.left)
  * @param {number} cy  canvas-relative CSS y
  * @param {Array}  handles

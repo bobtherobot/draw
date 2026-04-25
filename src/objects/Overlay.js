@@ -1,7 +1,7 @@
 /**
- * OverlayObject — per-item visual handles rendered in screen-space.
+ * Overlay — per-item visual handles rendered in screen-space.
  *
- * One OverlayObject is created per display item. It is responsible for
+ * One Overlay is created per display item. It is responsible for
  * drawing the selection box, scale handles, rotate zones, and origin
  * crosshair for a single selected item, and for hit-testing those handles.
  *
@@ -18,7 +18,7 @@ import {
   ORIGIN_HIT_R, HIT_PAD,
 } from '../render/selection-draw.js';
 
-export class OverlayObject {
+export class Overlay {
   constructor(itemId) {
     this._itemId       = itemId;
     this.isVisible     = false;
@@ -34,7 +34,7 @@ export class OverlayObject {
    *
    * @param {object} ckCanvas
    * @param {object} CK          CanvasKit instance (passed in to avoid import cycle)
-   * @param {import('./abstract-object.js').AbstractObject} abstract
+   * @param {import('./Abstract.js').Abstract} abstract
    * @param {{x:number, y:number, zoom:number}} viewport
    * @param {number} dpr         window.devicePixelRatio
    * @param {{x:number,y:number}|null} selectionOrigin  ctx.state.selectionOrigin
