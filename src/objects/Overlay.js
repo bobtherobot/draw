@@ -34,25 +34,24 @@ export class Overlay {
    *
    * @param {object} ckCanvas
    * @param {object} CK          CanvasKit instance (passed in to avoid import cycle)
-   * @param {import('./Abstract.js').Abstract} abstract
+   * @param {import('./Container.js').Container} abstract
    * @param {{x:number, y:number, zoom:number}} viewport
    * @param {number} dpr         window.devicePixelRatio
    * @param {{x:number,y:number}|null} selectionOrigin  ctx.state.selectionOrigin
    */
   draw(ckCanvas, CK, abstract, viewport, dpr, selectionOrigin) {
     this._localHandles = [];
-    const item   = abstract.item;
+    const shape   = abstract.shape;
     const dc     = docToCSS(viewport);
     const accent = css('--theme-accent')    || '#4a9eff';
     const bg     = css('--theme-bg-raised') || '#ffffff';
 
-    const rotData = item._rotDisplay;
+    const rotData = shape._rotDisplay;
 
     if (rotData) {
-      this._drawRotated(ckCanvas, CK, rotData, dc, dpr, accent, bg, item, selectionOrigin);
+      this._drawRotated(ckCanvas, CK, rotData, dc, dpr, accent, bg, shape, selectionOrigin);
     } else {
-      const ot = abstract.objectType;
-      const bb = ot?.getBBox(item);
+      const bb = abstract.displayObject?.getBBox(shape);
       if (!bb) return;
 
       const tl = dc(bb.x,            bb.y);
@@ -68,8 +67,8 @@ export class Overlay {
 
       this._localHandles.push(...buildHandles(bx_css, by_css, bw_css, bh_css, null));
 
-      const ox = item._origin?.x ?? selectionOrigin?.x ?? (bb.x + bb.width  / 2);
-      const oy = item._origin?.y ?? selectionOrigin?.y ?? (bb.y + bb.height / 2);
+      const ox = shape._origin?.x ?? selectionOrigin?.x ?? (bb.x + bb.width  / 2);
+      const oy = shape._origin?.y ?? selectionOrigin?.y ?? (bb.y + bb.height / 2);
       const op = dc(ox, oy);
       drawOriginCrosshair(ckCanvas, CK, op, dpr, accent);
       this._localHandles.push({ part: 'origin', x: op.x, y: op.y, r: ORIGIN_HIT_R + HIT_PAD });
@@ -88,7 +87,7 @@ export class Overlay {
 
   // ── Private ─────────────────────────────────────────────────────────────────
 
-  _drawRotated(ckCanvas, CK, rotData, dc, dpr, accent, bg, item, selectionOrigin) {
+  _drawRotated(ckCanvas, CK, rotData, dc, dpr, accent, bg, shape, selectionOrigin) {
     const { bbox: bb, center, angle } = rotData;
     const cp_css = dc(center.x, center.y);
     const tl_css = dc(bb.x, bb.y);
@@ -113,8 +112,8 @@ export class Overlay {
 
     this._localHandles.push(...buildHandles(bx_css, by_css, bw_css, bh_css, { cx: cp_css.x, cy: cp_css.y, rad }));
 
-    const ox = item._origin?.x ?? selectionOrigin?.x ?? center.x;
-    const oy = item._origin?.y ?? selectionOrigin?.y ?? center.y;
+    const ox = shape._origin?.x ?? selectionOrigin?.x ?? center.x;
+    const oy = shape._origin?.y ?? selectionOrigin?.y ?? center.y;
     const op = dc(ox, oy);
     drawOriginCrosshair(ckCanvas, CK, op, dpr, accent);
     this._localHandles.push({ part: 'origin', x: op.x, y: op.y, r: ORIGIN_HIT_R + HIT_PAD });

@@ -36,16 +36,16 @@ export class Rect extends BaseTool {
     if (w < 1 || h < 1) return;
 
     const ctx   = this._ctx;
-    const ot    = ctx.getBaseObject('path');
+    const ot    = ctx.getDisplayObject('path');
     const shape = ot.createShape(
       { d: rectToPathD({ x, y, width: w, height: h }) },
       { ...ctx.state.currentStyle }
     );
-    shape.parentId = ctx.state.activeItemId;
+    shape.parentId = ctx.state.activeContainerId;
 
     ctx.execute({
-      do()   { ctx.state.items.push(shape); ctx.state.selection = new Set([shape.id]); ctx.render(); },
-      undo() { ctx.state.items = ctx.state.items.filter(i => i.id !== shape.id); ctx.state.selection.clear(); ctx.render(); },
+      do()   { ctx.state.shapes.push(shape); ctx.state.selection = new Set([shape.id]); ctx.render(); },
+      undo() { ctx.state.shapes = ctx.state.shapes.filter(i => i.id !== shape.id); ctx.state.selection.clear(); ctx.render(); },
     });
   }
 

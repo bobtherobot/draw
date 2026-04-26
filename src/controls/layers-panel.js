@@ -5,7 +5,7 @@
  * Shift-click adds/removes from _panelSel; footer bulk actions operate on _panelSel.
  * For display-item rows, _panelSel and state.selection are kept in sync.
  */
-import { state, effectiveVisible, effectiveLocked, allDisplayItems, nextId, sanitizeName, findItem, sanitizeItems } from '../core/state.js';
+import { state, effectiveVisible, effectiveLocked, allDisplayShapes, nextId, sanitizeName, findShape, sanitizeShapes } from '../core/state.js';
 import { on, emit }    from '../core/events.js';
 
 import { registerZone, getZone } from '../core/focus.js';
@@ -54,16 +54,16 @@ export function initLayersPanel(registerPanel) {
 
 // ── Tree builder ──────────────────────────────────────────────────────────────
 
-function _buildTree(items) {
+function _buildTree(shapes) {
   const byId = {};
-  for (const item of items) byId[item.id] = { item, children: [] };
+  for (const shape of shapes) byId[shape.id] = { shape, children: [] };
 
   const roots = [];
-  for (let i = items.length - 1; i >= 0; i--) {
-    const item = items[i];
-    const node = byId[item.id];
-    if (item.parentId && byId[item.parentId]) {
-      byId[item.parentId].children.push(node);
+  for (let i = shapes.length - 1; i >= 0; i--) {
+    const shape = shapes[i];
+    const node = byId[shape.id];
+    if (shape.parentId && byId[shape.parentId]) {
+      byId[shape.parentId].children.push(node);
     } else {
       roots.push(node);
     }
@@ -75,9 +75,9 @@ function _buildTree(items) {
 
 function _versionKey() {
   return JSON.stringify([
-    state.items.map(i => [
+    state.shapes.map(i => [
       i.id, i.type, i.name, i.visible, i.locked, i.expanded, i.parentId ?? null,
-      state.activeItemId, state.selection.has(i.id), (i._text ?? '').slice(0, 20),
+      state.activeContainerId, state.selection.has(i.id), (i._text ?? '').slice(0, 20),
     ]),
     [..._panelSel].sort(),
   ]);
@@ -90,7 +90,7 @@ function _refresh() {
   _version = key;
 
   _panelBody.innerHTML = '';
-  for (const node of _buildTree(state.items)) {
+  for (const node of _buildTree(state.shapes)) {
     _panelBody.appendChild(_itemEl(node, 0));
   }
   _rebuildFooter();
@@ -105,7 +105,7 @@ function _updateHoverRow(shapeId) {
   for (const el of _panelBody.querySelectorAll('.lp-shape--hover'))
     el.classList.remove('lp-shape--hover');
   if (shapeId) {
-    _panelBody.querySelector(`.lp-shape[data-item-id="${shapeId}"]`)
+    _panelBody.querySelector(`.lp-shape[data-shape-id="${shapeId}"]`)
       ?.classList.add('lp-shape--hover');
   }
 }
@@ -150,32 +150,32 @@ function _footerBtn(icon, title, handler) {
 // ── Render: unified item row ──────────────────────────────────────────────────
 
 function _itemEl(node, depth) {
-  const { item, children } = node;
-  const isArtboard  = item.type === 'artboard';
-  const isGroup     = item.type === 'group' || isArtboard;
+  const { shape, children } = node;
+  const isArtboard  = shape.type === 'artboard';
+  const isGroup     = shape.type === 'group' || isArtboard;
   const hasChildren = children.length > 0;
 
   const wrap = _el('div', 'lp-node');
-  wrap.dataset.itemId = item.id;
+  wrap.dataset.shapeId = shape.id;
 
   const row = _el('div', isGroup ? 'lp-layer' : 'lp-shape');
-  row.dataset.itemId  = item.id;
+  row.dataset.shapeId  = shape.id;
   row.style.paddingLeft = (depth * INDENT_PX + (isGroup ? 4 : 20)) + 'px';
 
-  if (isGroup && item.id === state.activeItemId)    row.classList.add('lp-layer--active');
+  if (isGroup && shape.id === state.activeContainerId)    row.classList.add('lp-layer--active');
   if (isArtboard)                                   row.classList.add('lp-layer--artboard');
-  if (isGroup && _panelSel.has('item:' + item.id))  row.classList.add('lp-layer--panel-selected');
-  if (isGroup && effectiveLocked(item) && !item.locked) row.classList.add('lp-layer--eff-locked');
-  if (!isGroup && _panelSel.has('item:' + item.id)) row.classList.add('lp-shape--selected');
+  if (isGroup && _panelSel.has('shape:' + shape.id))  row.classList.add('lp-layer--panel-selected');
+  if (isGroup && effectiveLocked(shape) && !shape.locked) row.classList.add('lp-layer--eff-locked');
+  if (!isGroup && _panelSel.has('shape:' + shape.id)) row.classList.add('lp-shape--selected');
 
   // Expand chevron
   if (isGroup || hasChildren) {
     const chevron = _el('button', 'lp-expand');
     chevron.appendChild(getIconSync('ui', 'chevron'));
-    if (item.expanded) chevron.classList.add('lp-expand--open');
+    if (shape.expanded) chevron.classList.add('lp-expand--open');
     chevron.addEventListener('click', e => {
       e.stopPropagation();
-      item.expanded = !item.expanded;
+      shape.expanded = !shape.expanded;
       _version = null;
       _refresh();
     });
@@ -185,53 +185,53 @@ function _itemEl(node, depth) {
   // Icon: artboard and display items get type icons; plain groups do not
   if (!isGroup || isArtboard) {
     const icon = _el('span', 'lp-shape__icon');
-    icon.appendChild(getIconSync('objects', `object-${item.type}`));
+    icon.appendChild(getIconSync('objects', `object-${shape.type}`));
     row.appendChild(icon);
   }
 
   // Name
   const nameEl = _el('span', 'lp-row__name');
-  nameEl.textContent = _itemName(item);
+  nameEl.textContent = _shapeName(shape);
   if (isGroup) nameEl.style.fontWeight = '500';
   row.appendChild(nameEl);
 
   // Actions
   const actions = _el('span', 'lp-layer__actions');
 
-  if (item.type === 'group') {
+  if (shape.type === 'group') {
     const addSubBtn = _el('button', 'lp-btn');
     addSubBtn.title = 'Add sub-layer';
     addSubBtn.appendChild(getIconSync('ui', 'add'));
-    addSubBtn.addEventListener('click', e => { e.stopPropagation(); _addSubItem(item); });
+    addSubBtn.addEventListener('click', e => { e.stopPropagation(); _addSubShape(shape); });
     actions.appendChild(addSubBtn);
   }
   if (isArtboard) {
     const addLayerBtn = _el('button', 'lp-btn');
     addLayerBtn.title = 'Add layer';
     addLayerBtn.appendChild(getIconSync('ui', 'add'));
-    addLayerBtn.addEventListener('click', e => { e.stopPropagation(); _addSubItem(item); });
+    addLayerBtn.addEventListener('click', e => { e.stopPropagation(); _addSubShape(shape); });
     actions.appendChild(addLayerBtn);
   }
 
-  const isHidden = item.visible === false;
+  const isHidden = shape.visible === false;
   const visBtn = _el('button', 'lp-btn');
   visBtn.title = isHidden ? 'Show' : 'Hide';
   visBtn.appendChild(getIconSync('ui', isHidden ? 'hidden' : 'visible'));
   if (isHidden) visBtn.classList.add('lp-btn--is-hidden');
   visBtn.addEventListener('click', e => {
     e.stopPropagation();
-    item.visible = item.visible === false; // false→true, true/undefined→false
+    shape.visible = shape.visible === false; // false→true, true/undefined→false
     _version = null;
     render();
   });
 
   const lockBtn = _el('button', 'lp-btn lp-btn--lock');
-  lockBtn.title = item.locked ? 'Unlock' : 'Lock';
-  lockBtn.appendChild(getIconSync('ui', item.locked ? 'locked' : 'unlocked'));
-  if (item.locked) lockBtn.classList.add('lp-btn--is-locked');
+  lockBtn.title = shape.locked ? 'Unlock' : 'Lock';
+  lockBtn.appendChild(getIconSync('ui', shape.locked ? 'locked' : 'unlocked'));
+  if (shape.locked) lockBtn.classList.add('lp-btn--is-locked');
   lockBtn.addEventListener('click', e => {
     e.stopPropagation();
-    item.locked = !item.locked;
+    shape.locked = !shape.locked;
     _deselectLocked();
     _version = null;
     render();
@@ -240,10 +240,10 @@ function _itemEl(node, depth) {
   const dot = _el('button', 'lp-dot');
   dot.title = 'Select on canvas';
   dot.appendChild(getIconSync('ui', 'dot'));
-  if (_hasSelectedDescendant(item)) dot.classList.add('lp-dot--active');
+  if (_hasSelectedDescendant(shape)) dot.classList.add('lp-dot--active');
   dot.addEventListener('click', e => {
     e.stopPropagation();
-    const ids = isGroup ? _displayDescendants(item) : [item.id];
+    const ids = isGroup ? _displayDescendants(shape) : [shape.id];
     const sel = new Set(state.selection);
     const allSelected = ids.length > 0 && ids.every(id => sel.has(id));
     if (allSelected) {
@@ -262,36 +262,36 @@ function _itemEl(node, depth) {
   row.addEventListener('dblclick', e => {
     if (e.target.closest('button')) return;
     e.stopPropagation();
-    _editItemName(item, nameEl);
+    _editShapeName(shape, nameEl);
   });
 
   row.addEventListener('click', e => {
     if (_didDrag) return;
     if (e.target.closest('button')) return;
-    const key = 'item:' + item.id;
+    const key = 'shape:' + shape.id;
     if (e.shiftKey) {
       _rangeSelect(key);
     } else if (e.metaKey || e.ctrlKey) {
-      _toggleSel(item.id);
+      _toggleSel(shape.id);
       _anchor = key;
     } else {
       _panelSel.clear();
       _panelSel.add(key);
       _anchor = key;
-      if (isGroup) state.activeItemId = item.id;
+      if (isGroup) state.activeContainerId = shape.id;
     }
     render();
   });
 
   row.addEventListener('mousedown', e => {
     if (e.button !== 0 || e.target.closest('button') || e.target.closest('input')) return;
-    _startDrag(e, item, row, wrap);
+    _startDrag(e, shape, row, wrap);
   });
 
   wrap.appendChild(row);
 
   // Children
-  if ((isGroup || hasChildren) && item.expanded !== false) {
+  if ((isGroup || hasChildren) && shape.expanded !== false) {
     const body = _el('div', 'lp-body');
 
     for (const child of children) {
@@ -310,19 +310,19 @@ function _itemEl(node, depth) {
   return wrap;
 }
 
-function _itemName(item) {
-  if (item.name) return item.name;
-  if (item.type === 'free-text' || item.type === 'text-block') {
-    if (item._text?.trim()) return item._text.slice(0, 28);
-    return item.type === 'free-text' ? 'Free Text' : 'Text Block';
+function _shapeName(shape) {
+  if (shape.name) return shape.name;
+  if (shape.type === 'free-text' || shape.type === 'text-block') {
+    if (shape._text?.trim()) return shape._text.slice(0, 28);
+    return shape.type === 'free-text' ? 'Free Text' : 'Text Block';
   }
-  return { path: 'Path', group: 'Group', artboard: 'Artboard' }[item.type] ?? item.type;
+  return { path: 'Path', group: 'Group', artboard: 'Artboard' }[shape.type] ?? shape.type;
 }
 
-function _hasSelectedDescendant(item) {
-  if (state.selection.has(item.id)) return true;
-  for (const child of state.items) {
-    if (child.parentId === item.id && _hasSelectedDescendant(child)) return true;
+function _hasSelectedDescendant(shape) {
+  if (state.selection.has(shape.id)) return true;
+  for (const child of state.shapes) {
+    if (child.parentId === shape.id && _hasSelectedDescendant(child)) return true;
   }
   return false;
 }
@@ -330,13 +330,13 @@ function _hasSelectedDescendant(item) {
 // ── Panel selection helpers ───────────────────────────────────────────────────
 
 function _toggleSel(id) {
-  const k = 'item:' + id;
+  const k = 'shape:' + id;
   _panelSel.has(k) ? _panelSel.delete(k) : _panelSel.add(k);
 }
 
 function _rowKeys() {
-  return [..._panelBody.querySelectorAll('.lp-layer[data-item-id], .lp-shape[data-item-id]')]
-    .map(el => 'item:' + el.dataset.itemId);
+  return [..._panelBody.querySelectorAll('.lp-layer[data-shape-id], .lp-shape[data-shape-id]')]
+    .map(el => 'item:' + el.dataset.shapeId);
 }
 
 function _rangeSelect(targetKey) {
@@ -361,8 +361,8 @@ function _panelDisplaySelection() {
   for (const k of _panelSel) {
     if (k.startsWith('item:')) {
       const id   = k.slice(5);
-      const item = findItem(id);
-      if (item && item.type !== 'group' && item.type !== 'artboard') ids.add(id);
+      const shape = findShape(id);
+      if (item && shape.type !== 'group' && shape.type !== 'artboard') ids.add(id);
     }
   }
   return ids;
@@ -372,7 +372,7 @@ function _resolveSelected() {
   const result = [];
   for (const k of _panelSel) {
     if (k.startsWith('item:')) {
-      const item = findItem(k.slice(5));
+      const shape = findShape(k.slice(5));
       if (item) result.push(item);
     }
   }
@@ -381,14 +381,14 @@ function _resolveSelected() {
 
 function _onCanvasSelChange() {
   _panelSel.clear();
-  if (state.activeItemId) _panelSel.add('item:' + state.activeItemId);
+  if (state.activeContainerId) _panelSel.add('shape:' + state.activeContainerId);
   _version = null;
 }
 
-function _displayDescendants(item) {
+function _displayDescendants(shape) {
   const result = [];
-  for (const child of state.items) {
-    if (child.parentId !== item.id) continue;
+  for (const child of state.shapes) {
+    if (child.parentId !== shape.id) continue;
     if (child.type !== 'group' && child.type !== 'artboard') result.push(child.id);
     else result.push(..._displayDescendants(child));
   }
@@ -398,38 +398,38 @@ function _displayDescendants(item) {
 // ── Footer bulk actions ───────────────────────────────────────────────────────
 
 function _deleteSelected() {
-  const items = _resolveSelected().filter(i => i.type !== 'artboard');
+  const shapes = _resolveSelected().filter(s => s.type !== 'artboard');
   if (!items.length) return;
 
   const toDelete = new Set(items.map(i => i.id));
   const addDesc  = id => {
-    for (const item of state.items) {
-      if (item.parentId === id && !toDelete.has(item.id)) {
-        toDelete.add(item.id);
-        addDesc(item.id);
+    for (const shape of state.shapes) {
+      if (shape.parentId === id && !toDelete.has(shape.id)) {
+        toDelete.add(shape.id);
+        addDesc(shape.id);
       }
     }
   };
   for (const id of [...toDelete]) addDesc(id);
 
-  const oldItems  = [...state.items];
-  const oldActive = state.activeItemId;
+  const oldItems  = [...state.shapes];
+  const oldActive = state.activeContainerId;
 
   execute({
     do() {
-      state.items = state.items.filter(i => !toDelete.has(i.id));
-      sanitizeItems(state.items);
-      if (toDelete.has(state.activeItemId)) {
-        state.activeItemId = state.items.find(i => i.parentId === null && i.type === 'group')?.id
-          ?? state.items[0]?.id;
+      state.shapes = state.shapes.filter(i => !toDelete.has(i.id));
+      sanitizeShapes(state.shapes);
+      if (toDelete.has(state.activeContainerId)) {
+        state.activeContainerId = state.shapes.find(i => i.parentId === null && i.type === 'group')?.id
+          ?? state.shapes[0]?.id;
       }
       _panelSel.clear();
       _version = null;
       render();
     },
     undo() {
-      state.items        = oldItems;
-      state.activeItemId = oldActive;
+      state.shapes        = oldItems;
+      state.activeContainerId = oldActive;
       _version = null;
       render();
     },
@@ -437,7 +437,7 @@ function _deleteSelected() {
 }
 
 function _masterToggleVisible() {
-  const items = _resolveSelected();
+  const shapes = _resolveSelected();
   if (!items.length) return;
 
   const allVis = items.every(it => it.visible !== false);
@@ -452,14 +452,14 @@ function _masterToggleVisible() {
 
 function _deselectLocked() {
   const sel = new Set(state.selection);
-  for (const shape of allDisplayItems()) {
+  for (const shape of allDisplayShapes()) {
     if (sel.has(shape.id) && effectiveLocked(shape)) sel.delete(shape.id);
   }
   state.selection = sel;
 }
 
 function _masterToggleLock() {
-  const items = _resolveSelected();
+  const shapes = _resolveSelected();
   if (!items.length) return;
 
   const allLocked = items.every(it => it.locked);
@@ -473,7 +473,7 @@ function _masterToggleLock() {
 }
 
 function _copySelected() {
-  const items = _resolveSelected();
+  const shapes = _resolveSelected();
   if (!items.length) return;
 
   // Exclude items whose ancestor is also selected — they'll be cloned as part of that ancestor
@@ -483,19 +483,19 @@ function _copySelected() {
   const newItems = [];
   const idMap    = {};
 
-  const cloneSubtree = (item, newParentId, isRoot) => {
-    const newId    = nextId(item.type);
-    idMap[item.id] = newId;
+  const cloneSubtree = (shape, newParentId, isRoot) => {
+    const newId    = nextId(shape.type);
+    idMap[shape.id] = newId;
     const copy     = {
       ...item,
       id:       newId,
       parentId: newParentId,
-      name:     isRoot ? _copyName(item, newItems) : item.name,
-      attrs:    item.attrs ? { ...item.attrs } : undefined,
-      style:    item.style ? { ...item.style } : undefined,
+      name:     isRoot ? _copyName(item, newItems) : shape.name,
+      attrs:    shape.attrs ? { ...shape.attrs } : undefined,
+      style:    shape.style ? { ...shape.style } : undefined,
     };
     newItems.push(copy);
-    for (const child of state.items.filter(i => i.parentId === item.id)) {
+    for (const child of state.shapes.filter(i => i.parentId === shape.id)) {
       cloneSubtree(child, newId, false);
     }
   };
@@ -508,12 +508,12 @@ function _copySelected() {
 
   execute({
     do() {
-      const pos  = state.items.findIndex(i => i.id === insertAfterId);
-      const at   = pos >= 0 ? pos + 1 : state.items.length;
-      state.items = [
-        ...state.items.slice(0, at),
+      const pos  = state.shapes.findIndex(i => i.id === insertAfterId);
+      const at   = pos >= 0 ? pos + 1 : state.shapes.length;
+      state.shapes = [
+        ...state.shapes.slice(0, at),
         ...newItems,
-        ...state.items.slice(at),
+        ...state.shapes.slice(at),
       ];
       _panelSel = new Set(
         newItems.filter(i => !idMap[i.parentId]).map(i => 'item:' + i.id),
@@ -522,7 +522,7 @@ function _copySelected() {
       _version = null; render();
     },
     undo() {
-      state.items     = state.items.filter(i => !newItemIds.has(i.id));
+      state.shapes     = state.shapes.filter(i => !newItemIds.has(i.id));
       _panelSel       = oldSel;
       state.selection = _panelDisplaySelection();
       _version = null; render();
@@ -530,12 +530,12 @@ function _copySelected() {
   });
 }
 
-function _copyName(item, pendingItems = []) {
-  const base     = item.name ?? _itemName(item);
+function _copyName(shape, pendingItems = []) {
+  const base     = shape.name ?? _shapeName(shape);
   const stripped = base.replace(/ copy \d+$/, '');
-  const allItems = [...state.items, ...pendingItems];
+  const allItems = [...state.shapes, ...pendingItems];
   let n = 1;
-  while (allItems.some(i => i.id !== item.id && (i.name ?? _itemName(i)) === `${stripped} copy ${n}`)) n++;
+  while (allItems.some(i => i.id !== shape.id && (i.name ?? _itemName(i)) === `${stripped} copy ${n}`)) n++;
   return `${stripped} copy ${n}`;
 }
 
@@ -543,41 +543,41 @@ function _copyName(item, pendingItems = []) {
 
 function _addRootItem() {
   // Add a layer inside the first artboard; root-level groups have no artboard parent
-  const artboard  = state.items.find(i => i.type === 'artboard');
+  const artboard  = state.shapes.find(i => i.type === 'artboard');
   const parentId  = artboard?.id ?? null;
-  const item      = _makeGroup(`Layer ${state.items.filter(i => i.type === 'group').length + 1}`, parentId);
-  const oldActive = state.activeItemId;
+  const item      = _makeGroup(`Layer ${state.shapes.filter(i => i.type === 'group').length + 1}`, parentId);
+  const oldActive = state.activeContainerId;
   const wasExpanded = artboard?.expanded;
   execute({
     do() {
-      state.items.push(item);
-      state.activeItemId = item.id;
+      state.shapes.push(item);
+      state.activeContainerId = shape.id;
       if (artboard) artboard.expanded = true;
       render();
     },
     undo() {
-      state.items = state.items.filter(i => i.id !== item.id);
-      state.activeItemId = oldActive;
+      state.shapes = state.shapes.filter(i => i.id !== shape.id);
+      state.activeContainerId = oldActive;
       if (artboard) artboard.expanded = wasExpanded;
       render();
     },
   });
 }
 
-function _addSubItem(parent) {
-  const item        = _makeGroup(`Layer ${state.items.filter(i => i.type === 'group').length + 1}`, parent.id);
+function _addSubShape(parent) {
+  const item        = _makeGroup(`Layer ${state.shapes.filter(i => i.type === 'group').length + 1}`, parent.id);
   const wasExpanded = parent.expanded;
-  const oldActive   = state.activeItemId;
+  const oldActive   = state.activeContainerId;
   execute({
     do() {
-      state.items.push(item);
-      state.activeItemId = item.id;
+      state.shapes.push(item);
+      state.activeContainerId = shape.id;
       parent.expanded    = true;
       render();
     },
     undo() {
-      state.items        = state.items.filter(i => i.id !== item.id);
-      state.activeItemId = oldActive;
+      state.shapes        = state.shapes.filter(i => i.id !== shape.id);
+      state.activeContainerId = oldActive;
       parent.expanded    = wasExpanded;
       render();
     },
@@ -588,9 +588,9 @@ function _makeGroup(name, parentId) {
   return { id: nextId('item'), type: 'group', name, visible: true, locked: false, expanded: true, parentId: parentId ?? null };
 }
 
-function _editItemName(item, nameEl) {
+function _editShapeName(shape, nameEl) {
   const input = _el('input', 'lp-row__name lp-name-input');
-  input.value = item.name ?? _itemName(item);
+  input.value = shape.name ?? _shapeName(shape);
   nameEl.replaceWith(input);
   input.focus();
   input.select();
@@ -598,10 +598,10 @@ function _editItemName(item, nameEl) {
   const commit  = () => {
     if (cancelled) return;
     const val = sanitizeName(input.value);
-    if (item.type === 'group') {
-      if (val) item.name = val;
+    if (shape.type === 'group') {
+      if (val) shape.name = val;
     } else {
-      item.name = val || undefined;
+      shape.name = val || undefined;
     }
     _version = null;
     _refresh();
@@ -621,7 +621,7 @@ const _SCROLL_SPEED  = 5;
 
 // ── Drag start ────────────────────────────────────────────────────────────────
 
-function _startDrag(e, item, rowEl, nodeEl) {
+function _startDrag(e, shape, rowEl, nodeEl) {
   if (state.operation !== null) return; // canvas operation in progress
   e.preventDefault();
   _drag = {
@@ -708,7 +708,7 @@ function _calcNeedleY(e) {
 
 function _calcInsertionPoint(e) {
   const needleY = _calcNeedleY(e);
-  const rows    = [..._panelBody.querySelectorAll('.lp-layer[data-item-id], .lp-shape[data-item-id]')]
+  const rows    = [..._panelBody.querySelectorAll('.lp-layer[data-shape-id], .lp-shape[data-shape-id]')]
     .filter(el => !_drag.hideEl.contains(el) && el.style.display !== 'none');
 
   if (!rows.length) return null;
@@ -719,16 +719,16 @@ function _calcInsertionPoint(e) {
 
     if (isGroup) {
       if (needleY < r.top + r.height * 0.25)
-        return { position: 'before', refEl: row, targetItemId: row.dataset.itemId };
+        return { position: 'before', refEl: row, targetItemId: row.dataset.shapeId };
       if (needleY < r.top + r.height * 0.75)
-        return { position: 'into',   refEl: row, targetItemId: row.dataset.itemId };
+        return { position: 'into',   refEl: row, targetItemId: row.dataset.shapeId };
     } else {
       if (needleY < r.top + r.height / 2)
-        return { position: 'before', refEl: row, targetItemId: row.dataset.itemId };
+        return { position: 'before', refEl: row, targetItemId: row.dataset.shapeId };
     }
   }
   const last = rows[rows.length - 1];
-  return { position: 'after', refEl: last, targetItemId: last.dataset.itemId };
+  return { position: 'after', refEl: last, targetItemId: last.dataset.shapeId };
 }
 
 // ── Drop indicator ────────────────────────────────────────────────────────────
@@ -778,17 +778,17 @@ function _commitDrop(e) {
   if (!target?.targetItemId) return;
 
   const { item }   = _drag;
-  const targetItem = findItem(target.targetItemId);
-  if (!targetItem || targetItem.id === item.id) return;
+  const targetItem = findShape(target.targetItemId);
+  if (!targetItem || targetItem.id === shape.id) return;
 
-  if (target.position === 'into' && _isDescendant(targetItem, item)) return;
+  if (target.position === 'into' && _isDescendant(targetItem, shape)) return;
 
-  const oldItems    = [...state.items];
-  const oldParentId = item.parentId;
+  const oldItems    = [...state.shapes];
+  const oldParentId = shape.parentId;
   const oldExpanded = targetItem.expanded;
 
-  const subtree  = _collectSubtree(item);
-  const newItems = state.items.filter(i => !subtree.includes(i));
+  const subtree  = _collectSubtree(shape);
+  const newItems = state.shapes.filter(i => !subtree.includes(i));
 
   let newParentId, insertAt;
   if (target.position === 'into') {
@@ -801,37 +801,37 @@ function _commitDrop(e) {
   }
   newItems.splice(insertAt, 0, ...subtree);
 
-  if (_arraysEqual(state.items, newItems) && item.parentId === newParentId) return;
+  if (_arraysEqual(state.shapes, newItems) && shape.parentId === newParentId) return;
 
   execute({
     do() {
-      state.items   = newItems;
-      item.parentId = newParentId;
+      state.shapes   = newItems;
+      shape.parentId = newParentId;
       if (target.position === 'into') targetItem.expanded = true;
       _version = null; render();
     },
     undo() {
-      state.items   = oldItems;
-      item.parentId = oldParentId;
+      state.shapes   = oldItems;
+      shape.parentId = oldParentId;
       if (target.position === 'into') targetItem.expanded = oldExpanded;
       _version = null; render();
     },
   });
 }
 
-function _collectSubtree(item) {
+function _collectSubtree(shape) {
   const result = [item];
-  for (const i of state.items) {
-    if (i.parentId === item.id) result.push(..._collectSubtree(i));
+  for (const i of state.shapes) {
+    if (i.parentId === shape.id) result.push(..._collectSubtree(i));
   }
   return result;
 }
 
-function _isDescendant(item, potentialAncestor) {
+function _isDescendant(shape, potentialAncestor) {
   let cur = item;
   while (cur?.parentId) {
     if (cur.parentId === potentialAncestor.id) return true;
-    cur = state.items.find(i => i.id === cur.parentId);
+    cur = state.shapes.find(i => i.id === cur.parentId);
   }
   return false;
 }
@@ -840,24 +840,24 @@ function _isDescendant(item, potentialAncestor) {
 
 function _deleteDraggedItem() {
   const { item }  = _drag;
-  const subtree   = _collectSubtree(item);
+  const subtree   = _collectSubtree(shape);
   const toDelete  = new Set(subtree.map(i => i.id));
-  const oldItems  = [...state.items];
-  const oldActive = state.activeItemId;
+  const oldItems  = [...state.shapes];
+  const oldActive = state.activeContainerId;
 
   execute({
     do() {
-      state.items = state.items.filter(i => !toDelete.has(i.id));
-      sanitizeItems(state.items);
-      if (toDelete.has(state.activeItemId)) {
-        state.activeItemId = state.items.find(i => i.parentId === null && i.type === 'group')?.id
-          ?? state.items[0]?.id;
+      state.shapes = state.shapes.filter(i => !toDelete.has(i.id));
+      sanitizeShapes(state.shapes);
+      if (toDelete.has(state.activeContainerId)) {
+        state.activeContainerId = state.shapes.find(i => i.parentId === null && i.type === 'group')?.id
+          ?? state.shapes[0]?.id;
       }
       _panelSel.clear(); _version = null; render();
     },
     undo() {
-      state.items        = oldItems;
-      state.activeItemId = oldActive;
+      state.shapes        = oldItems;
+      state.activeContainerId = oldActive;
       _version = null; render();
     },
   });

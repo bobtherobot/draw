@@ -1,5 +1,5 @@
 /**
- * BaseObject base class.
+ * DisplayObject base class.
  *
  * Each shape type (path, free-text, text-block, group) is a stateless singleton
  * that extends this class. Shape data stays as plain POJOs for simple undo snapshotting.
@@ -8,15 +8,9 @@
  */
 import { nextId } from '../core/state.js';
 
-export class BaseObject {
+export class DisplayObject {
   /** Unique type id matching shape.type. @type {string} */
-  get id()    { throw new Error(`${this.constructor.name}: id not implemented`); }
-
-  /** Display label (layers panel). @type {string} */
-  get label() { return this.id; }
-
-  /** Layers panel icon SVG name (in objects/ category). @type {string} */
-  get icon()  { return 'object-path'; }
+  get id() { throw new Error(`${this.constructor.name}: id not implemented`); }
 
   /**
    * Create a fresh shape POJO.
@@ -71,6 +65,12 @@ export class BaseObject {
   /** @param {object} shape @param {number} angleDeg @param {number} cx @param {number} cy */
   bakeRotation(shape, angleDeg, cx, cy) { throw new Error(`${this.constructor.name}: bakeRotation not implemented`); }
 
+  /**
+   * Scale in a rotated coordinate frame. Called by Container.applyScale when rotDisp is set.
+   * Return true if handled; false to fall through to default scale() + syncRotDisplay().
+   */
+  applyScaleRotated(_shape, _sx, _sy, _ox, _oy, _rotDisp) { return false; }
+
   // ── Serialization ───────────────────────────────────────────────────────────
 
   /**
@@ -98,15 +98,4 @@ export class BaseObject {
    * @returns {{x:number, y:number}[]}
    */
   getWireframePoints(shape) { return []; }
-
-  // ── Companion object factory ─────────────────────────────────────────────────
-
-  /**
-   * Create an optional Aux for per-type extra rendering.
-   * Called once when the item is added to state.items[].
-   * Return null (default) if this type needs no auxiliary rendering.
-   * @param {object} item
-   * @returns {import('./aux-object.js').Aux | null}
-   */
-  createAuxObject(item) { return null; }
 }

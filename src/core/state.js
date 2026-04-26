@@ -2,19 +2,20 @@
  * Global application state — single mutable object.
  * Mutate directly; call emit('render') or emit('selection-change') after.
  *
- * Data model: flat `state.items` array, each item identified by a session-local
- * id and linked to its parent via `parentId` (null = root level). Any item can
+ * Data model: flat `state.shapes` array, each shape identified by a session-local
+ * id and linked to its parent via `parentId` (null = root level). Any shape can
  * hold children; the tree is reconstructed on demand.
  *
- * Item shape:
+ * Shape structure:
  *   { id, type, name?, parentId, visible, locked, expanded,
  *     attrs?, style?, _text?, _fontSize?, _fontFamily?,
  *     _boxWidth?, _boxHeight? }
  *
  * type 'group'      — pure container, no geometry
- * type 'path'       — display item, may have children
- * type 'free-text'  — display item, may have children
- * type 'text-block' — display item, may have children
+ * type 'artboard'   — pure container, owns dimensions
+ * type 'path'       — display shape
+ * type 'free-text'  — display shape
+ * type 'text-block' — display shape
  */
 
 let _idCounter = 0;
@@ -39,15 +40,15 @@ export function sanitizeName(str) {
     .slice(0, 100);
 }
 
-const _artboardId    = nextId('item'); // 'item1'
-const _defaultItemId = nextId('item'); // 'item2'
+const _artboardId       = nextId('item'); // 'item1'
+const _defaultLayerId   = nextId('item'); // 'item2'
 
 export const state = {
   activeTool:  'select',
   activeMode:  'normal',
 
-  /** @type {object[]} flat ordered item array — tree structure encoded via parentId */
-  items: [
+  /** @type {object[]} flat ordered shape array — tree structure encoded via parentId */
+  shapes: [
     {
       id:       _artboardId,
       type:     'artboard',
@@ -59,7 +60,7 @@ export const state = {
       attrs:    { x: 0, y: 0, width: 800, height: 600 },
     },
     {
-      id:       _defaultItemId,
+      id:       _defaultLayerId,
       type:     'group',
       name:     'Layer 1',
       parentId: _artboardId,
@@ -68,9 +69,11 @@ export const state = {
       expanded: true,
     },
   ],
-  activeItemId: _defaultItemId,
 
-  /** @type {Set<string>} selected item ids */
+  /** ID of the active container (group or artboard) — where new shapes are placed. */
+  activeContainerId: _defaultLayerId,
+
+  /** @type {Set<string>} selected shape ids */
   selection: new Set(),
 
   viewport: { x: 0, y: 0, zoom: 1 },
@@ -114,16 +117,6 @@ export const state = {
 
   /**
    * The operation currently in progress. null when idle.
-   * Written by tools on mousedown, cleared on mouseup/commit.
-   *
-   * Defined values:
-   *   'move'          — dragging selected shapes
-   *   'scale:<handle>'— scaling via a handle, e.g. 'scale:nw', 'scale:se'
-   *   'rotate'        — rotating selected shapes
-   *   'band'          — rubber-band selection
-   *   'text-edit'     — text editor active (new or existing shape)
-   *
-   * Tools may define additional values for future operations.
    * @type {string|null}
    */
   operation: null,
@@ -136,107 +129,83 @@ export const state = {
 
   /**
    * Persistent collection-level rotation state for multi-selection.
-   * Written when a rotate drag commits; read by renderSelection and _enterRotate
-   * so the rotated overlay survives across subsequent scale/rotate operations.
-   * Cleared when the selection changes or the tool switches away.
    * @type {{ bbox: {x,y,width,height}, center: {x,y}, angle: number } | null}
    */
   selectionRotation: null,
 
   /**
    * Transform origin for the current selection session.
-   * Set by the select tool when the user drags the crosshair; cleared when the
-   * user starts a new selection gesture.  Per-shape _origin is only written for
-   * single-shape selections; this slot covers both single and multi-selection
-   * so the crosshair stays live without tainting individual shapes.
    * @type {{ x: number, y: number } | null}
    */
   selectionOrigin: null,
 };
 
-/** Return the active container item, falling back to the first root group. */
-export function getActiveItem() {
-  return state.items.find(i => i.id === state.activeItemId)
-    ?? state.items.find(i => i.parentId === null && i.type === 'group')
-    ?? state.items[0];
+/** Return the active container (group or artboard) where new shapes will be placed. */
+export function getActiveContainer() {
+  return state.shapes.find(s => s.id === state.activeContainerId)
+    ?? state.shapes.find(s => s.parentId === null && s.type === 'group')
+    ?? state.shapes[0];
 }
 
-/** Return the first artboard item (single-artboard enforcement). */
+/** Return the first artboard shape. */
 export function getActiveArtboard() {
-  return state.items.find(i => i.type === 'artboard') ?? null;
+  return state.shapes.find(s => s.type === 'artboard') ?? null;
 }
 
 /**
  * Return all direct children of the given parentId, in array order.
- * Pass null to get root-level items.
+ * Pass null to get root-level shapes.
  */
 export function childrenOf(parentId) {
-  return state.items.filter(i => i.parentId === parentId);
+  return state.shapes.filter(s => s.parentId === parentId);
 }
 
 /**
- * Promote orphaned items to root level.
+ * Promote orphaned shapes to root level.
  * Call after any delete operation and on deserialize.
- * Mutates items in place.
+ * Mutates shapes in place.
  */
-export function sanitizeItems(items) {
-  const ids = new Set(items.map(i => i.id));
-  for (const item of items) {
-    if (item.parentId && !ids.has(item.parentId)) item.parentId = null;
+export function sanitizeShapes(shapes) {
+  const ids = new Set(shapes.map(s => s.id));
+  for (const shape of shapes) {
+    if (shape.parentId && !ids.has(shape.parentId)) shape.parentId = null;
   }
 }
 
 /**
- * Effective visibility — false if the item itself OR any ancestor is hidden.
- * Never mutates child state.
+ * Effective visibility — false if the shape itself OR any ancestor is hidden.
  */
-export function effectiveVisible(item) {
-  let cur = item;
+export function effectiveVisible(shape) {
+  let cur = shape;
   while (cur) {
     if (cur.visible === false) return false;
-    cur = cur.parentId ? state.items.find(i => i.id === cur.parentId) : null;
+    cur = cur.parentId ? state.shapes.find(s => s.id === cur.parentId) : null;
   }
   return true;
 }
 
 /**
- * Effective lock — true if the item itself OR any ancestor is locked.
+ * Effective lock — true if the shape itself OR any ancestor is locked.
  */
-export function effectiveLocked(item) {
-  let cur = item;
+export function effectiveLocked(shape) {
+  let cur = shape;
   while (cur) {
     if (cur.locked) return true;
-    cur = cur.parentId ? state.items.find(i => i.id === cur.parentId) : null;
+    cur = cur.parentId ? state.shapes.find(s => s.id === cur.parentId) : null;
   }
   return false;
 }
 
 /**
- * Find a display item (non-group) by id.
+ * Find any shape by id.
  * @param {string} id
  * @returns {object | null}
  */
-export function findItem(id) {
-  return state.items.find(i => i.id === id) ?? null;
-}
-
-/** Return all display items (non-group, non-artboard) in array order. */
-export function allDisplayItems() {
-  return state.items.filter(i => i.type !== 'group' && i.type !== 'artboard');
-}
-
-// ── Legacy aliases — removed callers should migrate to the new names ──────────
-// These are kept temporarily so the app doesn't break on first boot while the
-// migration of downstream files is in progress.
-
-/** @deprecated use getActiveItem() */
-export function getActiveLayer() { return getActiveItem(); }
-
-/** @deprecated use findItem(id) */
 export function findShape(id) {
-  const item = findItem(id);
-  return item ? { shape: item, layer: item } : null;
+  return state.shapes.find(s => s.id === id) ?? null;
 }
 
-/** @deprecated use allDisplayItems() */
-export function allShapes() { return allDisplayItems(); }
+/** Return all display shapes (non-group, non-artboard) in array order. */
+export function allDisplayShapes() {
+  return state.shapes.filter(s => s.type !== 'group' && s.type !== 'artboard');
+}

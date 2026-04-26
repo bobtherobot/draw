@@ -3,11 +3,12 @@
  */
 import { newDocument, openSVG, saveSVG, exportSVG } from '../io/io.js';
 import { undo, redo, canUndo, canRedo }              from '../core/history.js';
-import { allDisplayItems }                            from '../core/state.js';
+import { allDisplayShapes }                            from '../core/state.js';
 import { state }                                      from '../core/state.js';
 import { render }                                     from '../render/renderer.js';
 import { getTool }                                    from '../core/registry.js';
 import { showDocumentSettings, showOptions }          from './dialogs.js';
+import { groupSelected, ungroupSelected }             from '../operations/grouping.js';
 
 const MENUS = [
   {
@@ -106,12 +107,14 @@ function _execute(action) {
     case 'redo':      if (canRedo()) { redo(); render(); }  break;
     case 'selectAll': _selectAll();                         break;
     case 'delete':    _delete();                            break;
-    // copy, paste, group, ungroup, bringToFront, sendToBack — not yet implemented
+    case 'group':   groupSelected();   break;
+    case 'ungroup': ungroupSelected(); break;
+    // copy, paste, bringToFront, sendToBack — not yet implemented
   }
 }
 
 function _selectAll() {
-  const shapes = allDisplayItems();
+  const shapes = allDisplayShapes();
   if (shapes.length === 0) return;
   state.selection = new Set(shapes.map(s => s.id));
   render();

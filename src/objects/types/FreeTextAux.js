@@ -18,24 +18,24 @@ function _css(name) {
 }
 
 export class FreeTextAux extends Aux {
-  drawCanvas2D(ctx, item, abstract, viewState, appState) {
-    const isSelected = appState.selection.has(item.id);
-    const isHovered  = appState.hover?.shape?.id === item.id;
+  drawCanvas2D(ctx, shape, abstract, viewState, appState) {
+    const isSelected = appState.selection.has(shape.id);
+    const isHovered  = appState.hover?.shape?.id === shape.id;
     if (!isSelected && !isHovered) return;
 
-    const x        = item.attrs.x   ?? 0;
-    const y        = item.attrs.y   ?? 0;
-    const fs       = item._fontSize   ?? 14;
-    const ff       = item._fontFamily ?? 'sans-serif';
-    const align    = item._textAlign  ?? 'left';
-    const scaleX   = item._scaleX    ?? 1;
-    const scaleY   = item._scaleY    ?? 1;
-    const rotation = item._rotation  ?? 0;
-    const rotCx    = item._rotCx ?? x;
-    const rotCy    = item._rotCy ?? (y + fs);
+    const x        = shape.attrs.x   ?? 0;
+    const y        = shape.attrs.y   ?? 0;
+    const fs       = shape._fontSize   ?? 14;
+    const ff       = shape._fontFamily ?? 'sans-serif';
+    const align    = shape._textAlign  ?? 'left';
+    const scaleX   = shape._scaleX    ?? 1;
+    const scaleY   = shape._scaleY    ?? 1;
+    const rotation = shape._rotation  ?? 0;
+    const rotCx    = shape._rotCx ?? x;
+    const rotCy    = shape._rotCy ?? (y + fs);
     const zoom     = viewState.zoom;
 
-    const text  = item._text ?? '';
+    const text  = shape._text ?? '';
     const rawW  = measureTextWidth(text, fs, ff);
     // Use a minimum width so there's always something visible even for empty/short text.
     const textW = Math.max(rawW, fs * 0.4) * Math.abs(scaleX);

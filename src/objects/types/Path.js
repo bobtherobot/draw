@@ -1,15 +1,16 @@
-import { BaseObject } from '../BaseObject.js';
+import { DisplayObject } from '../DisplayObject.js';
+import { Container }     from '../Container.js';
 import { nextId } from '../../core/state.js';
 import { parsePathD, buildPathD } from '../../utils/geometry/path-utils.js';
 import { translatePathD, scalePathD, rotatePathD, rotatePoint } from '../../utils/geometry/transform.js';
 import { getCK } from '../../render/renderer.js';
 
-const HIT_TOLERANCE = 4; // px in doc space (scaled by zoom below)
+const HIT_TOLERANCE = 4;
 
-export class Path extends BaseObject {
-  get id()    { return 'path'; }
-  get label() { return 'Path'; }
-  get icon()  { return 'object-path'; }
+// ── Renderer ──────────────────────────────────────────────────────────────────
+
+class PathRenderer extends DisplayObject {
+  get id() { return 'path'; }
 
   createShape(initAttrs, initStyle) {
     const shape = super.createShape(initAttrs, initStyle);
@@ -79,7 +80,6 @@ export class Path extends BaseObject {
           const [x1, y1, x2, y2, x3, y3] = args;
           expand(cx, cy);
           expand(x3, y3);
-          // Find t values where derivative = 0 for accurate curve bounds
           for (const t of _cubicExtrema(cx, x1, x2, x3))
             expand(_cubicAt(t, cx, x1, x2, x3), _cubicAt(t, cy, y1, y2, y3));
           for (const t of _cubicExtrema(cy, y1, y2, y3))
@@ -97,26 +97,21 @@ export class Path extends BaseObject {
     const tol = HIT_TOLERANCE / zoom;
     const bb  = this.getBBox(shape);
     if (!bb) return null;
-    // Cheap bbox pre-check
     if (docX < bb.x - tol || docX > bb.x + bb.width  + tol) return null;
     if (docY < bb.y - tol || docY > bb.y + bb.height + tol) return null;
 
     const segs = parsePathD(shape.attrs.d ?? '');
     if (!segs.length) return null;
 
-    // Fill hit: use CanvasKit path.contains() (Skia winding-rule point-in-fill)
     const CK = getCK();
     if (CK) {
       const ckPath = CK.Path.MakeFromSVGString(shape.attrs.d ?? '');
       if (!ckPath) return { part: 'body' };
       const inFill = shape.style.fill !== 'none' && ckPath.contains(docX, docY);
       if (inFill) { ckPath.delete(); return { part: 'body' }; }
-      // Stroke hit: widen path by tolerance and re-test
       if (shape.style.stroke !== 'none') {
         const sw = (shape.style.strokeWidth ?? 1) + tol * 2;
         const widened = ckPath.copy();
-        // Stroke-to-fill conversion: check if docX,docY is in the stroke outline
-        // Use OffscreenCanvas for stroke test as CanvasKit doesn't expose isPointInStroke
         try {
           const oc  = new OffscreenCanvas(1, 1);
           const oct = oc.getContext('2d');
@@ -133,7 +128,6 @@ export class Path extends BaseObject {
       return null;
     }
 
-    // Fallback (CK not ready): bbox hit
     return { part: 'body' };
   }
 
@@ -154,14 +148,39 @@ export class Path extends BaseObject {
     delete shape._rotDisplay;
   }
 
+  applyScaleRotated(shape, sx, sy, ox, oy, rotDisp) {
+    const { center: { x: cx, y: cy }, angle } = rotDisp;
+    let d = shape.attrs.d;
+    d = rotatePathD(d, -angle, cx, cy);
+    d = scalePathD(d, sx, sy, ox, oy);
+    d = rotatePathD(d, angle, cx, cy);
+    shape.attrs.d = d;
+
+    const shapeBB   = shape._rotDisplay?.bbox;
+    const snapCtr   = shape._rotDisplay?.center ?? { x: cx, y: cy };
+    const prevAngle = shape._rotDisplay?.angle ?? 0;
+    if (shapeBB) {
+      const scaledW  = shapeBB.width  * Math.abs(sx);
+      const scaledH  = shapeBB.height * Math.abs(sy);
+      const localC   = rotatePoint(snapCtr.x, snapCtr.y, cx, cy, -angle);
+      const newLCx   = ox + (localC.x - ox) * sx;
+      const newLCy   = oy + (localC.y - oy) * sy;
+      const { x: visCx, y: visCy } = rotatePoint(newLCx, newLCy, cx, cy, angle);
+      shape._rotDisplay = {
+        bbox:   { x: visCx - scaledW / 2, y: visCy - scaledH / 2, width: scaledW, height: scaledH },
+        center: { x: visCx, y: visCy },
+        angle:  prevAngle,
+      };
+    } else {
+      delete shape._rotDisplay;
+    }
+    return true;
+  }
+
   bakeRotation(shape, angleDeg, cx, cy) {
     const prevAngle = shape._rotDisplay?.angle ?? 0;
     const prevBBox  = shape._rotDisplay?.bbox  ?? this.getBBox(shape);
 
-    // Rotate the bbox's centre through the operation pivot to find the shape's
-    // new visual centre.  Storing centre = shape's own current centre (not the
-    // operation pivot) means subsequent individual operations always pivot on
-    // the shape itself, regardless of what collection centre was used here.
     const prevCx = prevBBox.x + prevBBox.width  / 2;
     const prevCy = prevBBox.y + prevBBox.height / 2;
     const { x: newCx, y: newCy } = rotatePoint(prevCx, prevCy, cx, cy, angleDeg);
@@ -211,7 +230,26 @@ export class Path extends BaseObject {
   }
 }
 
-// Replay path segments onto a Canvas 2D context (for stroke hit-testing only).
+// ── Thin controller ───────────────────────────────────────────────────────────
+
+const _renderer = new PathRenderer();
+
+export class Path extends Container {
+  static id      = 'path';
+  static label   = 'Path';
+  static icon    = 'object-path';
+  static renderer = _renderer;
+
+  get typeId() { return 'path'; }
+  get label()  { return 'Path'; }
+  get icon()   { return 'object-path'; }
+
+  constructor(shape) { super(shape); }
+  _createDisplayObject() { return _renderer; }
+}
+
+// ── Private helpers ───────────────────────────────────────────────────────────
+
 function _replayPath2D(ctx, segs) {
   for (const { cmd, args } of segs) {
     switch (cmd) {
@@ -223,7 +261,6 @@ function _replayPath2D(ctx, segs) {
   }
 }
 
-// Returns t values in (0,1) where the cubic bezier derivative is 0 along one axis
 function _cubicExtrema(p0, p1, p2, p3) {
   const a = -p0 + 3*p1 - 3*p2 + p3;
   const b = 2*(p0 - 2*p1 + p2);
@@ -242,7 +279,6 @@ function _cubicExtrema(p0, p1, p2, p3) {
   return ts;
 }
 
-// Evaluate cubic bezier at t along one axis
 function _cubicAt(t, p0, p1, p2, p3) {
   const u = 1 - t;
   return u*u*u*p0 + 3*u*u*t*p1 + 3*u*t*t*p2 + t*t*t*p3;

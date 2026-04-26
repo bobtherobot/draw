@@ -11,7 +11,7 @@
  * @property {import('../core/history.js').execute}   execute
  * @property {Function}  render        - () => void
  * @property {Function}  screenToDoc   - (sx, sy) => {x, y}
- * @property {Function}  getBaseObject - (typeId) => BaseObject|null
+ * @property {Function}  getDisplayObject - (typeId) => DisplayObject|null
  * @property {Function}  setActiveTool - (toolId) => void
  * @property {Function}  emit          - (event, data) => void
  * @property {Function}  getModifiers  - () => modifiers snapshot

@@ -14,14 +14,14 @@
  *  10. activeMode.afterRender()
  *  11. emit('render') → panel refreshes
  */
-import { state, effectiveVisible, allDisplayItems } from '../core/state.js';
-import { getBaseObject, getMode }  from '../core/registry.js';
-import { emit }                    from '../core/events.js';
-import { applyTransform }          from '../core/Viewport.js';
-import { OverlayManager }          from './OverlayManager.js';
-import { renderSelection }         from './selection.js';
-import { getEditingShapeId }       from '../core/TextEdit.js';
-import { syncCompanions, getCompanions } from '../core/item-registry.js';
+import { state, effectiveVisible, allDisplayShapes } from '../core/state.js';
+import { getDisplayObject, getMode } from '../core/registry.js';
+import { emit }                      from '../core/events.js';
+import { applyTransform }            from '../core/Viewport.js';
+import { OverlayManager }            from './OverlayManager.js';
+import { renderSelection }           from './selection.js';
+import { getEditingShapeId }         from '../core/TextEdit.js';
+import { syncControllers, getController } from '../core/shape-registry.js';
 
 let _CK             = null;  // CanvasKit instance
 let _canvas         = null;  // HTMLCanvasElement
@@ -65,8 +65,8 @@ export function getOverlay() {
 export function render() {
   if (!_CK || !_canvas) return;
 
-  // Keep companion registry in sync with state.items (handles create/delete/undo/redo)
-  syncCompanions(state.items);
+  // Keep controller registry in sync with state.shapes (handles create/delete/undo/redo)
+  syncControllers(state.shapes);
 
   // Recreate surface if canvas dimensions changed (e.g. window resize)
   if (!_surface || _surface.width() !== _canvas.width || _surface.height() !== _canvas.height) {
@@ -76,7 +76,7 @@ export function render() {
   if (!_ckCanvas) return;
 
   const activeMode = getMode(state.activeMode);
-  if (activeMode) activeMode.beforeRender({ state, getBaseObject });
+  if (activeMode) activeMode.beforeRender({ state, getDisplayObject });
 
   // ── Doc-space pass ────────────────────────────────────────────────────────
   _ckCanvas.clear(_CK.TRANSPARENT);
@@ -90,7 +90,7 @@ export function render() {
   _ckCanvas.restore();
 
   // ── Screen-space pass ─────────────────────────────────────────────────────
-  renderSelection(_ckCanvas, state, getBaseObject);
+  renderSelection(_ckCanvas, state, getDisplayObject);
   _overlayManager.flushAll(_ckCanvas);
 
   // Submit GPU commands
@@ -99,7 +99,7 @@ export function render() {
   // Text layer — draw text shapes using Canvas 2D (browser handles font lookup)
   _renderTextLayer();
 
-  if (activeMode) activeMode.afterRender({ state, getBaseObject });
+  if (activeMode) activeMode.afterRender({ state, getDisplayObject });
   emit('render', null);
 }
 
@@ -121,7 +121,7 @@ function _drawArtboards() {
   strokePaint.setStrokeWidth(1 / state.viewport.zoom);
   strokePaint.setAntiAlias(false);
 
-  for (const ab of state.items.filter(i => i.type === 'artboard')) {
+  for (const ab of state.shapes.filter(i => i.type === 'artboard')) {
     const { x, y, width, height } = ab.attrs;
     const rect = _CK.XYWHRect(x, y, width, height);
     _ckCanvas.drawRect(rect, fillPaint);
@@ -132,14 +132,14 @@ function _drawArtboards() {
   strokePaint.delete();
 }
 
-function _buildRenderTree(items) {
+function _buildRenderTree(shapes) {
   const byId = {};
-  for (const item of items) byId[item.id] = { item, children: [] };
+  for (const shape of shapes) byId[shape.id] = { shape, children: [] };
   const roots = [];
-  for (const item of items) {
-    const node = byId[item.id];
-    if (item.parentId && byId[item.parentId]) {
-      byId[item.parentId].children.push(node);
+  for (const shape of shapes) {
+    const node = byId[shape.id];
+    if (shape.parentId && byId[shape.parentId]) {
+      byId[shape.parentId].children.push(node);
     } else {
       roots.push(node);
     }
@@ -151,7 +151,7 @@ function _drawTree(activeMode) {
   const zoom      = state.viewport.zoom;
   const viewState = { mode: state.activeMode, zoom };
   const editingId = getEditingShapeId();
-  const roots     = _buildRenderTree(state.items);
+  const roots     = _buildRenderTree(state.shapes);
   _drawNodes(roots, activeMode, viewState, editingId);
 }
 
@@ -171,31 +171,26 @@ function _renderTextLayer() {
   ctx.save();
   const s = zoom * dpr;
   ctx.setTransform(s, 0, 0, s, -vx * s, -vy * s);
-  _drawTextNodes(ctx, _buildRenderTree(state.items), getEditingShapeId());
+  _drawTextNodes(ctx, _buildRenderTree(state.shapes), getEditingShapeId());
   ctx.restore();
 }
 
 function _drawTextNodes(ctx, nodes, editingId) {
-  for (const { item, children } of nodes) {
-    if (!effectiveVisible(item)) continue;
-    if (item.type === 'artboard') {
+  for (const { shape, children } of nodes) {
+    if (!effectiveVisible(shape)) continue;
+    if (shape.type === 'artboard') {
       ctx.save();
       ctx.beginPath();
-      ctx.rect(item.attrs.x, item.attrs.y, item.attrs.width, item.attrs.height);
+      ctx.rect(shape.attrs.x, shape.attrs.y, shape.attrs.width, shape.attrs.height);
       ctx.clip();
       _drawTextNodes(ctx, children, editingId);
       ctx.restore();
-    } else if (item.type === 'group') {
+    } else if (shape.type === 'group') {
       _drawTextNodes(ctx, children, editingId);
     } else {
-      if (item.id !== editingId) {
-        const ot = getBaseObject(item.type);
-        ot?.drawCanvas2D?.(ctx, item);
-        const comps = getCompanions(item.id);
-        if (comps?.aux) {
-          const viewState = { mode: state.activeMode, zoom: state.viewport.zoom };
-          comps.aux.drawCanvas2D(ctx, item, comps.abstract, viewState, state);
-        }
+      if (shape.id !== editingId) {
+        const ctrl = getController(shape.id);
+        ctrl?.renderCanvas2D(ctx, state);
       }
       if (children.length) _drawTextNodes(ctx, children, editingId);
     }
@@ -203,20 +198,20 @@ function _drawTextNodes(ctx, nodes, editingId) {
 }
 
 function _drawNodes(nodes, activeMode, viewState, editingId) {
-  for (const { item, children } of nodes) {
-    if (!effectiveVisible(item)) continue;
+  for (const { shape, children } of nodes) {
+    if (!effectiveVisible(shape)) continue;
 
-    if (item.type === 'artboard') {
+    if (shape.type === 'artboard') {
       // Clip children to artboard bounds
       _ckCanvas.save();
-      const rect = _CK.XYWHRect(item.attrs.x, item.attrs.y, item.attrs.width, item.attrs.height);
+      const rect = _CK.XYWHRect(shape.attrs.x, shape.attrs.y, shape.attrs.width, shape.attrs.height);
       _ckCanvas.clipRect(rect, _CK.ClipOp.Intersect, false);
       _drawNodes(children, activeMode, viewState, editingId);
       _ckCanvas.restore();
 
-    } else if (item.type === 'group') {
-      const tx = item.attrs?.tx ?? 0;
-      const ty = item.attrs?.ty ?? 0;
+    } else if (shape.type === 'group') {
+      const tx = shape.attrs?.tx ?? 0;
+      const ty = shape.attrs?.ty ?? 0;
       if (tx || ty) {
         _ckCanvas.save();
         _ckCanvas.translate(tx, ty);
@@ -228,16 +223,11 @@ function _drawNodes(nodes, activeMode, viewState, editingId) {
 
     } else {
       // Display item — skip if currently being text-edited
-      if (item.id !== editingId) {
-        const ot = getBaseObject(item.type);
-        if (ot) {
-          const modeStyle  = activeMode?.resolveStyle(item, state) ?? null;
-          const renderItem = modeStyle
-            ? { ...item, style: { ...item.style, ...modeStyle } }
-            : item;
-          ot.draw(_ckCanvas, renderItem, viewState);
-          const comps = getCompanions(item.id);
-          if (comps?.aux) comps.aux.draw(_ckCanvas, renderItem, comps.abstract, viewState, state);
+      if (shape.id !== editingId) {
+        const ctrl = getController(shape.id);
+        if (ctrl) {
+          const modeStyle = activeMode?.resolveStyle(shape, state) ?? null;
+          ctrl.render(_ckCanvas, viewState, state, modeStyle);
         }
       }
       if (children.length) _drawNodes(children, activeMode, viewState, editingId);
@@ -252,10 +242,10 @@ function _drawWireframeDots(activeMode) {
   paint.setColor(_CK.parseColorString('#4a9eff'));
   paint.setAntiAlias(true);
   const r = 3 / state.viewport.zoom;
-  for (const shape of allDisplayItems()) {
+  for (const shape of allDisplayShapes()) {
     if (!effectiveVisible(shape)) continue;
-    const ot = getBaseObject(shape.type);
-    const pts = ot?.getWireframePoints?.(shape) ?? [];
+    const do_ = getDisplayObject(shape.type);
+    const pts = do_?.getWireframePoints?.(shape) ?? [];
     for (const { x, y } of pts) _ckCanvas.drawCircle(x, y, r, paint);
   }
   paint.delete();

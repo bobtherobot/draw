@@ -8,15 +8,15 @@
 import { BaseTool } from './BaseTool.js';
 import { startEditing, isEditing } from '../core/TextEdit.js';
 import { unionBBoxes } from '../utils/geometry/bbox.js';
-import { effectiveVisible, effectiveLocked, allDisplayItems, findItem, sanitizeItems } from '../core/state.js';
+import { effectiveVisible, effectiveLocked, findShape, sanitizeShapes } from '../core/state.js';
 import { rotatePoint } from '../utils/geometry/path-utils.js';
 import { hitTest } from '../core/hit-test.js';
 import { handleAtPoint } from '../render/selection.js';
 import { applyTransform } from '../core/Viewport.js';
 import { getCK } from '../render/renderer.js';
 import { TransformController } from './TransformController.js';
+import { SelectionProxy } from './SelectionProxy.js';
 import { cloneShape, restoreShape } from '../utils/snapshots.js';
-import { getCompanions } from '../core/item-registry.js';
 
 const DBL_CLICK_MS  = 400;
 
@@ -41,7 +41,11 @@ export class Select extends BaseTool {
   get shortcut() { return 'v'; }
   get icon()     { return 'select'; }
 
-  init(ctx) { super.init(ctx); this._transops = new TransformController(ctx); }
+  init(ctx) {
+    super.init(ctx);
+    this._selProxy = new SelectionProxy();
+    this._transops = new TransformController(ctx, this._selProxy);
+  }
 
   activate() {
     this._mode       = 'idle'; // 'idle'|'move'|'band'|'transop'
@@ -92,7 +96,7 @@ export class Select extends BaseTool {
 
     // Handle double-click on text shapes
     if (hitId && hitId === this._lastClickId && now - this._lastClickT < DBL_CLICK_MS) {
-      const shape = findItem(hitId);
+      const shape = findShape(hitId);
       if (shape && (shape.type === 'free-text' || shape.type === 'text-block')) {
         this._lastClickId = null;
         this._openTextEditor(shape, hitId);
@@ -148,9 +152,7 @@ export class Select extends BaseTool {
     if (Math.hypot(dx, dy) > 0.5) this._moved = true;
 
     if (this._mode === 'move') {
-      for (const id of ctx.state.selection) {
-        getCompanions(id)?.abstract.applyMove(dx, dy);
-      }
+      this._selProxy.applyMove(dx, dy);
       if (this._selRotSnap) {
         const s = this._selRotSnap;
         ctx.state.selectionRotation = {
@@ -178,22 +180,18 @@ export class Select extends BaseTool {
     const pos  = ctx.screenToDoc(e.clientX, e.clientY);
 
     if (this._mode === 'move' && this._moved) {
-      const entries = [];
-      for (const id of ctx.state.selection) {
-        const result = getCompanions(id)?.abstract.commitOp();
-        if (result) entries.push(result);
-      }
+      const entries = this._selProxy.commitOp();
       ctx.execute({
         do() {
           for (const { id, post } of entries) {
-            const shape = findItem(id);
+            const shape = findShape(id);
             if (shape) restoreShape(shape, post);
           }
           ctx.render();
         },
         undo() {
           for (const { id, pre } of entries) {
-            const shape = findItem(id);
+            const shape = findShape(id);
             if (shape) restoreShape(shape, pre);
           }
           ctx.render();
@@ -232,9 +230,8 @@ export class Select extends BaseTool {
   // ── Move ────────────────────────────────────────────────────────────────────
 
   _snapshotMove() {
-    for (const id of this._ctx.state.selection) {
-      getCompanions(id)?.abstract.beginOp();
-    }
+    this._selProxy.rebuild(this._ctx.state.selection);
+    this._selProxy.beginOp();
     const sr = this._ctx.state.selectionRotation;
     this._selRotSnap = sr
       ? { bbox: { ...sr.bbox }, center: { ...sr.center }, angle: sr.angle }
@@ -253,11 +250,12 @@ export class Select extends BaseTool {
 
     const ctx = this._ctx;
     const sel = additive ? new Set(ctx.state.selection) : new Set();
-    for (const shape of allDisplayItems()) {
+    // Iterate direct children of the active container (groups + display items)
+    // so a group is selected only when its own bbox is fully inside the band.
+    for (const shape of this._selectablesAtLevel()) {
       if (!effectiveVisible(shape)) continue;
       if (effectiveLocked(shape)) continue;
-      const ot = ctx.getBaseObject(shape.type);
-      const bb = ot?.getBBox(shape);
+      const bb = ctx.getDisplayObject(shape.type)?.getBBox(shape);
       if (!bb) continue;
       if (bb.x >= x0 && bb.x + bb.width  <= x1 &&
           bb.y >= y0 && bb.y + bb.height <= y1) {
@@ -266,6 +264,12 @@ export class Select extends BaseTool {
     }
     ctx.state.selection        = sel;
     ctx.state.selectionRotation = null;
+  }
+
+  // Direct children of the active container — includes groups and display items.
+  _selectablesAtLevel() {
+    const { shapes, activeContainerId } = this._ctx.state;
+    return shapes.filter(s => s.parentId === activeContainerId && s.type !== 'artboard');
   }
 
   // ── Text editing ─────────────────────────────────────────────────────────────
@@ -295,20 +299,20 @@ export class Select extends BaseTool {
       onInput: (text) => {
         // Live-update the shape so text guides reflect current content while typing.
         // The SVG element is hidden by the renderer while shapeId === getEditingShapeId().
-        const s = findItem(shapeId);
+        const s = findShape(shapeId);
         if (s) { s._text = text; ctx.render(); }
       },
       onCommit: (text) => {
         // Restore snap text first so execute's do() starts from a clean state
-        const s = findItem(shapeId);
+        const s = findShape(shapeId);
         if (s) s._text = snap._text;
         ctx.execute({
-          do()   { const s = findItem(shapeId); if (s) { s._text = text; ctx.getBaseObject(s.type)?.syncRotDisplay?.(s); ctx.render(); } },
-          undo() { const s = findItem(shapeId); if (s) { restoreShape(s, snap); ctx.render(); } },
+          do()   { const s = findShape(shapeId); if (s) { s._text = text; ctx.getDisplayObject(s.type)?.syncRotDisplay?.(s); ctx.render(); } },
+          undo() { const s = findShape(shapeId); if (s) { restoreShape(s, snap); ctx.render(); } },
         });
       },
       onCancel: () => {
-        const s = findItem(shapeId);
+        const s = findShape(shapeId);
         if (s) { restoreShape(s, snap); ctx.render(); }
       },
     });
@@ -324,19 +328,19 @@ export class Select extends BaseTool {
     const ids = [...ctx.state.selection];
     if (ids.length === 0) return;
 
-    const oldItems = [...ctx.state.items];
+    const oldItems = [...ctx.state.shapes];
     const oldSel   = new Set(ctx.state.selection);
 
     ctx.execute({
       do() {
-        ctx.state.items             = ctx.state.items.filter(i => !ids.includes(i.id));
-        sanitizeItems(ctx.state.items);
+        ctx.state.shapes             = ctx.state.shapes.filter(i => !ids.includes(i.id));
+        sanitizeShapes(ctx.state.shapes);
         ctx.state.selection          = new Set();
         ctx.state.selectionRotation  = null;
         ctx.render();
       },
       undo() {
-        ctx.state.items     = oldItems;
+        ctx.state.shapes     = oldItems;
         ctx.state.selection = oldSel;
         ctx.render();
       },
@@ -347,10 +351,29 @@ export class Select extends BaseTool {
 
   _shapeIdAt(screenX, screenY) {
     const ctx  = this._ctx;
-    const hit  = hitTest(screenX, screenY, ctx.getBaseObject);
+    const hit  = hitTest(screenX, screenY, ctx.getDisplayObject);
     if (!hit || hit.isHandle || !hit.shape) return null;
     if (effectiveLocked(hit.shape)) return null;
-    return hit.shape.id;
+    return this._topGroupAncestor(hit.shape.id);
+  }
+
+  // Walk up the shape tree and return the nearest group ancestor that is a
+  // direct child of the active container, so clicking inside a group selects
+  // the group rather than the individual child.
+  _topGroupAncestor(shapeId) {
+    const { shapes, activeContainerId } = this._ctx.state;
+    const byId = Object.fromEntries(shapes.map(s => [s.id, s]));
+    let s = byId[shapeId];
+    let promoted = null;
+    while (s?.parentId) {
+      const parent = byId[s.parentId];
+      if (!parent) break;
+      if (parent.type === 'group' && parent.parentId === activeContainerId) {
+        promoted = parent.id;
+      }
+      s = parent;
+    }
+    return promoted ?? shapeId;
   }
 
   _drawBand(ckCanvas) {
@@ -417,7 +440,7 @@ export class Select extends BaseTool {
     if (state.activeRotation)    return state.activeRotation.angle;
     if (state.selectionRotation) return state.selectionRotation.angle;
     if (state.selection.size === 1) {
-      const shape = findItem([...state.selection][0]);
+      const shape = findShape([...state.selection][0]);
       return shape?._rotDisplay?.angle ?? 0;
     }
     return 0;

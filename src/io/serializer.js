@@ -4,67 +4,70 @@
  * Native format (save/load): JSON via serializeJSON / deserializeJSON.
  * SVG format (export/import): exportSVG / importSVG.
  *
+ * The .draw JSON file format uses the key "items" (preserved for backward
+ * compatibility). All in-memory code uses "shapes".
+ *
  * ID reconstruction on load:
  * All IDs are always regenerated via nextId() when deserializing.
  * IDs from the file are never trusted — this guarantees uniqueness when
  * multiple documents are opened in the same session.
  */
-import { getBaseObject } from '../core/registry.js';
+import { getDisplayObject } from '../core/registry.js';
 import { rectToPathD, ellipseToPathD } from '../utils/geometry/path-utils.js';
-import { nextId, sanitizeItems } from '../core/state.js';
+import { nextId, sanitizeShapes } from '../core/state.js';
 
 // ── JSON (native .draw format) ────────────────────────────────────────────────
 
 /**
- * Serialize items to a JSON string.
- * @param {object[]} items
+ * Serialize shapes to a JSON string.
+ * @param {object[]} shapes
  * @param {object}   doc   — { width, height, name }
  * @returns {string}
  */
-export function serializeJSON(items, doc) {
-  return JSON.stringify({ version: 1, doc, items }, null, 2);
+export function serializeJSON(shapes, doc) {
+  return JSON.stringify({ version: 1, doc, items: shapes }, null, 2);
 }
 
 /**
- * Parse a .draw JSON string back into items + doc.
+ * Parse a .draw JSON string back into shapes + doc.
  * Regenerates all IDs to avoid session collisions.
- * Upgrades old format (doc.width/height instead of artboard item) transparently.
+ * Upgrades old format (doc.width/height instead of artboard shape) transparently.
  * @param {string} text
- * @returns {{ items: object[], doc: object } | null}
+ * @returns {{ shapes: object[], doc: object } | null}
  */
 export function deserializeJSON(text) {
   try {
     const parsed = JSON.parse(text);
     if (!Array.isArray(parsed.items) || !parsed.doc) return null;
 
-    const idMap    = new Map();
-    const newItems = parsed.items.map(item => {
-      const prefix = (item.type === 'group' || item.type === 'artboard') ? 'item' : item.type;
+    const idMap     = new Map();
+    const newShapes = parsed.items.map(shape => {
+      const prefix = (shape.type === 'group' || shape.type === 'artboard') ? 'item' : shape.type;
       const newId  = nextId(prefix);
-      idMap.set(item.id, newId);
-      return { ...item, id: newId };
+      idMap.set(shape.id, newId);
+      return { ...shape, id: newId };
     });
-    for (const item of newItems) {
-      if (item.parentId) item.parentId = idMap.get(item.parentId) ?? null;
+    for (const shape of newShapes) {
+      if (shape.parentId) shape.parentId = idMap.get(shape.parentId) ?? null;
     }
 
-    // Upgrade: old files stored dimensions on doc instead of artboard item
-    if (!newItems.some(i => i.type === 'artboard') && parsed.doc.width && parsed.doc.height) {
+    // Upgrade: old files stored dimensions on doc instead of artboard shape
+    if (!newShapes.some(s => s.type === 'artboard') && parsed.doc.width && parsed.doc.height) {
       const artboardId = nextId('item');
       const artboard = {
         id: artboardId, type: 'artboard', name: 'Artboard 1',
         parentId: null, visible: true, locked: false, expanded: true,
         attrs: { x: 0, y: 0, width: parsed.doc.width, height: parsed.doc.height },
       };
-      for (const item of newItems) {
-        if (item.parentId === null) item.parentId = artboardId;
+      for (const shape of newShapes) {
+        if (shape.parentId === null) shape.parentId = artboardId;
       }
-      newItems.unshift(artboard);
+      newShapes.unshift(artboard);
     }
 
-    sanitizeItems(newItems);
+    sanitizeShapes(newShapes);
     const doc = { name: parsed.doc.name ?? 'Untitled' };
-    return { items: newItems, doc };
+    return { shapes: newShapes, doc };
   } catch (_) {
     return null;
   }
@@ -73,19 +76,18 @@ export function deserializeJSON(text) {
 // ── SVG export ────────────────────────────────────────────────────────────────
 
 /**
- * Export items to a clean SVG string (no metadata attributes).
- * Uses the first artboard item for dimensions; falls back to 800×600.
- * @param {object[]} items
- * @param {object}   _doc  (unused — dimensions come from artboard items)
+ * Export shapes to a clean SVG string (no metadata attributes).
+ * Uses the first artboard shape for dimensions; falls back to 800×600.
+ * @param {object[]} shapes
+ * @param {object}   _doc  (unused — dimensions come from artboard shapes)
  * @returns {string}
  */
-export function exportSVG(items, _doc) {
-  const artboard = items.find(i => i.type === 'artboard');
+export function exportSVG(shapes, _doc) {
+  const artboard = shapes.find(s => s.type === 'artboard');
   const { x = 0, y = 0, width = 800, height = 600 } = artboard?.attrs ?? {};
   let out = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${x} ${y} ${width} ${height}">\n`;
-  // Export only children of artboards (skip artboard container items themselves)
-  const exportItems = items.filter(i => i.type !== 'artboard');
-  for (const node of _buildExportTree(exportItems)) {
+  const exportShapes = shapes.filter(s => s.type !== 'artboard');
+  for (const node of _buildExportTree(exportShapes)) {
     out += _renderExportNode(node, 1);
   }
   out += `</svg>`;
@@ -95,10 +97,10 @@ export function exportSVG(items, _doc) {
 // ── SVG import ────────────────────────────────────────────────────────────────
 
 /**
- * Parse a foreign SVG string into a flat items array.
- * Top-level <g> elements become group items; their children become display items.
+ * Parse a foreign SVG string into a flat shapes array.
+ * Top-level <g> elements become group shapes; their children become display shapes.
  * @param {string} svgText
- * @returns {{ items: object[], doc: object } | null}
+ * @returns {{ shapes: object[], doc: object } | null}
  */
 export function importSVG(svgText) {
   const parser = new DOMParser();
@@ -111,7 +113,7 @@ export function importSVG(svgText) {
   const doc    = { name: 'Untitled' };
 
   const artboardId = nextId('item');
-  const items = [{
+  const shapes = [{
     id:       artboardId,
     type:     'artboard',
     name:     'Artboard 1',
@@ -125,7 +127,7 @@ export function importSVG(svgText) {
 
   for (const g of svgEl.querySelectorAll(':scope > g')) {
     const groupId = nextId('item');
-    items.push({
+    shapes.push({
       id:       groupId,
       type:     'group',
       name:     g.dataset.name || `Layer ${lid++}`,
@@ -136,40 +138,40 @@ export function importSVG(svgText) {
     });
 
     for (const child of g.children) {
-      const shape = _elementToItem(child);
+      const shape = _elementToShape(child);
       if (shape) {
         shape.parentId = groupId;
-        items.push(shape);
+        shapes.push(shape);
       }
     }
   }
 
   // If no top-level <g> layers, create a default layer and import loose children
-  if (items.length === 1) {
+  if (shapes.length === 1) {
     const layerId = nextId('item');
-    items.push({ id: layerId, type: 'group', name: 'Layer 1', parentId: artboardId, visible: true, locked: false, expanded: true });
+    shapes.push({ id: layerId, type: 'group', name: 'Layer 1', parentId: artboardId, visible: true, locked: false, expanded: true });
     for (const child of svgEl.children) {
       if (child.tagName === 'g') continue;
-      const shape = _elementToItem(child);
-      if (shape) { shape.parentId = layerId; items.push(shape); }
+      const shape = _elementToShape(child);
+      if (shape) { shape.parentId = layerId; shapes.push(shape); }
     }
   }
 
-  sanitizeItems(items);
-  return { items, doc };
+  sanitizeShapes(shapes);
+  return { shapes, doc };
 }
 
 // ── SVG export helpers ────────────────────────────────────────────────────────
 
-function _buildExportTree(items) {
+function _buildExportTree(shapes) {
   const byId = {};
-  for (const item of items) byId[item.id] = { item, children: [] };
+  for (const shape of shapes) byId[shape.id] = { shape, children: [] };
   const roots = [];
-  for (let i = items.length - 1; i >= 0; i--) {
-    const item = items[i];
-    const node = byId[item.id];
-    if (item.parentId && byId[item.parentId]) {
-      byId[item.parentId].children.push(node);
+  for (let i = shapes.length - 1; i >= 0; i--) {
+    const shape = shapes[i];
+    const node  = byId[shape.id];
+    if (shape.parentId && byId[shape.parentId]) {
+      byId[shape.parentId].children.push(node);
     } else {
       roots.push(node);
     }
@@ -178,14 +180,14 @@ function _buildExportTree(items) {
 }
 
 function _renderExportNode(node, indent) {
-  const { item, children } = node;
+  const { shape, children } = node;
   const prefix = '  '.repeat(indent);
-  const ot     = getBaseObject(item.type);
+  const do_    = getDisplayObject(shape.type);
 
-  if (item.type === 'group' || children.length > 0) {
+  if (shape.type === 'group' || children.length > 0) {
     let out = `${prefix}<g>\n`;
-    if (item.type !== 'group' && ot) {
-      out += `${prefix}  ${ot.toSVGString(item, false)}\n`;
+    if (shape.type !== 'group' && do_) {
+      out += `${prefix}  ${do_.toSVGString(shape, false)}\n`;
     }
     for (const child of children) {
       out += _renderExportNode(child, indent + 1);
@@ -193,22 +195,22 @@ function _renderExportNode(node, indent) {
     out += `${prefix}</g>\n`;
     return out;
   }
-  return ot ? `${prefix}${ot.toSVGString(item, false)}\n` : '';
+  return do_ ? `${prefix}${do_.toSVGString(shape, false)}\n` : '';
 }
 
 // ── SVG import helpers ────────────────────────────────────────────────────────
 
-function _elementToItem(el) {
+function _elementToShape(el) {
   const tag = el.tagName.toLowerCase();
 
   if (tag === 'rect')    return _legacyRect(el);
   if (tag === 'ellipse') return _legacyEllipse(el);
 
   for (const typeId of ['text-block', 'free-text', 'path', 'group']) {
-    const ot   = getBaseObject(typeId);
-    if (!ot) continue;
-    const item = ot.fromSVGElement(el);
-    if (item) return item;
+    const do_   = getDisplayObject(typeId);
+    if (!do_) continue;
+    const shape = do_.fromSVGElement(el);
+    if (shape) return shape;
   }
   return null;
 }

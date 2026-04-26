@@ -4,23 +4,24 @@
  * Owned by Select; receives the AppContext at construction.
  *
  * Per-item snapshot lifecycle and geometry math are handled by each item's
- * Abstract (Abstract.beginOp / applyX / commitOp).
+ * Container (Container.beginOp / applyX / commitOp).
  * This controller is responsible only for shared/selection-level state:
  *   • computing sx/sy/ox/oy, delta, pivot from mouse position
  *   • maintaining selectionRotation / activeRotation on ctx.state
  *   • building the undo/redo command from the per-item { pre, post } pairs
  */
-import { findItem }                             from '../core/state.js';
+import { findShape }                             from '../core/state.js';
 import { unionBBoxes }                          from '../utils/geometry/bbox.js';
 import { rotatePoint }                          from '../utils/geometry/transform.js';
 import { restoreShape }                         from '../utils/snapshots.js';
-import { getCompanions }                        from '../core/item-registry.js';
+import { getDisplayObject }                     from '../core/registry.js';
 
 const SCALE_HANDLES = ['nw','n','ne','e','se','s','sw','w'];
 
 export class TransformController {
-  constructor(ctx) {
+  constructor(ctx, proxy) {
     this._ctx = ctx;
+    this._proxy = proxy;
     this._mode             = null;
     this._bboxSnap         = null;
     this._scaleHandle      = null;
@@ -96,9 +97,8 @@ export class TransformController {
     this._mode = 'scale';
     this._ctx.state.operation = `scale:${handle}`;
     this._scaleHandle = handle;
-    for (const id of this._ctx.state.selection) {
-      getCompanions(id)?.abstract.beginOp();
-    }
+    this._proxy.rebuild(this._ctx.state.selection);
+    this._proxy.beginOp();
     this._scaleRotDisplay   = _uniformRotDisplay(this._ctx.state.selection);
     this._scalingCollection = false;
     if (!this._scaleRotDisplay && this._ctx.state.selectionRotation && this._ctx.state.selection.size > 1) {
@@ -133,9 +133,7 @@ export class TransformController {
     const ox = h.includes('w') ? bb.x + bb.width  : bb.x;
     const oy = h.includes('n') ? bb.y + bb.height : bb.y;
 
-    for (const id of ctx.state.selection) {
-      getCompanions(id)?.abstract.applyScale(sx, sy, ox, oy, rotDisp);
-    }
+    this._proxy.applyScale(sx, sy, ox, oy, rotDisp);
 
     // Keep the collection overlay bbox in sync with the live scale.
     if (this._scalingCollection) {
@@ -158,11 +156,10 @@ export class TransformController {
   _enterRotate() {
     this._mode = 'rotate';
     this._ctx.state.operation = 'rotate';
-    for (const id of this._ctx.state.selection) {
-      getCompanions(id)?.abstract.beginOp();
-    }
+    this._proxy.rebuild(this._ctx.state.selection);
+    this._proxy.beginOp();
     const ctx = this._ctx;
-    const selectedShapes = [...ctx.state.selection].map(id => findItem(id)).filter(Boolean);
+    const selectedShapes = [...ctx.state.selection].map(id => findShape(id)).filter(Boolean);
     const customOrigin = ctx.state.selectionOrigin ?? _uniformOriginFromShapes(selectedShapes);
     const rotDisp = _uniformRotDisplay(ctx.state.selection)
       ?? (ctx.state.selectionRotation && ctx.state.selection.size > 1 ? ctx.state.selectionRotation : null);
@@ -208,9 +205,7 @@ export class TransformController {
       }
     }
 
-    for (const id of this._ctx.state.selection) {
-      getCompanions(id)?.abstract.applyRotate(delta, this._rotCenter);
-    }
+    this._proxy.applyRotate(delta, this._rotCenter);
   }
 
   // ── Move origin ────────────────────────────────────────────────────────────
@@ -218,39 +213,32 @@ export class TransformController {
   _enterMoveOrigin() {
     this._mode = 'moveorigin';
     this._ctx.state.operation = 'moveorigin';
-    for (const id of this._ctx.state.selection) {
-      getCompanions(id)?.abstract.beginOp();
-    }
+    this._proxy.rebuild(this._ctx.state.selection);
+    this._proxy.beginOp();
   }
 
   _doMoveOrigin(pos) {
     this._ctx.state.selectionOrigin = { x: pos.x, y: pos.y };
     if (this._ctx.state.selection.size === 1) {
-      for (const id of this._ctx.state.selection) {
-        getCompanions(id)?.abstract.applyMoveOrigin(pos);
-      }
+      this._proxy.applyMoveOrigin(pos);
     }
   }
 
   _commitMoveOrigin() {
     const ctx = this._ctx;
     if (ctx.state.selection.size !== 1) return;
-    const entries = [];
-    for (const id of ctx.state.selection) {
-      const result = getCompanions(id)?.abstract.commitOp();
-      if (result) entries.push(result);
-    }
+    const entries = this._proxy.commitOp();
     ctx.execute({
       do() {
         for (const { id, post } of entries) {
-          const s = findItem(id);
+          const s = findShape(id);
           if (s) { restoreShape(s, post); ctx.state.selectionOrigin = s._origin ?? null; }
         }
         ctx.render();
       },
       undo() {
         for (const { id, pre } of entries) {
-          const s = findItem(id);
+          const s = findShape(id);
           if (s) { restoreShape(s, pre); ctx.state.selectionOrigin = s._origin ?? null; }
         }
         ctx.render();
@@ -262,22 +250,18 @@ export class TransformController {
 
   _commitTransform() {
     const ctx     = this._ctx;
-    const entries = [];
-    for (const id of ctx.state.selection) {
-      const result = getCompanions(id)?.abstract.commitOp();
-      if (result) entries.push(result);
-    }
+    const entries = this._proxy.commitOp();
     ctx.execute({
       do() {
         for (const { id, post } of entries) {
-          const shape = findItem(id);
+          const shape = findShape(id);
           if (shape) restoreShape(shape, post);
         }
         ctx.render();
       },
       undo() {
         for (const { id, pre } of entries) {
-          const shape = findItem(id);
+          const shape = findShape(id);
           if (shape) restoreShape(shape, pre);
         }
         ctx.render();
@@ -288,13 +272,11 @@ export class TransformController {
   // ── Helpers ────────────────────────────────────────────────────────────────
 
   _selectionBBox() {
-    const ctx = this._ctx;
     const bbs = [];
-    for (const id of ctx.state.selection) {
-      const shape = findItem(id);
+    for (const id of this._ctx.state.selection) {
+      const shape = findShape(id);
       if (!shape) continue;
-      const ot = ctx.getBaseObject(shape.type);
-      const bb = ot?.getBBox(shape);
+      const bb = getDisplayObject(shape.type)?.getBBox(shape);
       if (bb) bbs.push(bb);
     }
     return unionBBoxes(bbs);
@@ -306,11 +288,11 @@ export class TransformController {
 function _uniformRotDisplay(selectionSet) {
   const ids = [...selectionSet];
   if (!ids.length) return null;
-  const first = findItem(ids[0])?._rotDisplay;
+  const first = findShape(ids[0])?._rotDisplay;
   if (!first) return null;
   const bboxes = [first.bbox];
   for (const id of ids.slice(1)) {
-    const rd = findItem(id)?._rotDisplay;
+    const rd = findShape(id)?._rotDisplay;
     if (!rd || rd.angle !== first.angle ||
         rd.center.x !== first.center.x || rd.center.y !== first.center.y) return null;
     bboxes.push(rd.bbox);

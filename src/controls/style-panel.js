@@ -2,7 +2,7 @@
  * Style panel — fill, stroke, stroke-width controls.
  * Reflects state.currentStyle and applies to selection.
  */
-import { state, findItem } from '../core/state.js';
+import { state, findShape } from '../core/state.js';
 import { on, emit }   from '../core/events.js';
 import { execute }    from '../core/history.js';
 import { render } from '../render/renderer.js';
@@ -125,8 +125,8 @@ function _syncToCurrentStyle() {
 
 function _getDisplayStyle() {
   for (const id of state.selection) {
-    const shape = findItem(id);
-    if (shape) return shape.style;
+    const shape = findShape(id);
+    if (shape?.style) return shape.style;
   }
   return state.currentStyle;
 }
@@ -149,7 +149,7 @@ function _commitColor(prop, snapshot, value) {
 
 function _applyStyle(prop, value) {
   for (const id of state.selection) {
-    const shape = findItem(id);
+    const shape = findShape(id);
     if (!shape) continue;
     shape.style[prop] = value;
   }
@@ -158,7 +158,7 @@ function _applyStyle(prop, value) {
 function _snapshotSelection() {
   const shapes = {};
   for (const id of state.selection) {
-    const shape = findItem(id);
+    const shape = findShape(id);
     if (shape) shapes[id] = { ...shape.style };
   }
   return { shapes, currentStyle: { ...state.currentStyle } };
@@ -166,7 +166,7 @@ function _snapshotSelection() {
 
 function _restoreSnapshot(snap) {
   for (const [id, style] of Object.entries(snap.shapes)) {
-    const shape = findItem(id);
+    const shape = findShape(id);
     if (shape) {
       Object.assign(shape.style, style);
     }

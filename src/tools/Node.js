@@ -3,7 +3,7 @@
  */
 import { BaseTool } from './BaseTool.js';
 import { buildPenPathD, parsePenAnchors } from '../utils/geometry/pen-path.js';
-import { findItem } from '../core/state.js';
+import { findShape } from '../core/state.js';
 import { applyTransform, getCanvasRect } from '../core/Viewport.js';
 import { getCK } from '../render/renderer.js';
 
@@ -147,8 +147,8 @@ export class Node extends BaseTool {
       const postDs = this._snapshotDs();
       const ctx    = this._ctx;
       ctx.execute({
-        do()   { for (const [id, d] of postDs) { const s = findItem(id); if (s) s.attrs.d = d; } ctx.render(); },
-        undo() { for (const [id, d] of preDs)  { const s = findItem(id); if (s) s.attrs.d = d; } ctx.render(); },
+        do()   { for (const [id, d] of postDs) { const s = findShape(id); if (s) s.attrs.d = d; } ctx.render(); },
+        undo() { for (const [id, d] of preDs)  { const s = findShape(id); if (s) s.attrs.d = d; } ctx.render(); },
       });
     }
     this._mode         = 'idle';
@@ -173,7 +173,7 @@ export class Node extends BaseTool {
   }
 
   _beginEditing(shapeId) {
-    const found = findItem(shapeId);
+    const found = findShape(shapeId);
     if (!found || found.type !== 'path') return;
     const { anchors, closed } = parsePenAnchors(found.attrs.d ?? '');
     this._editingIds.add(shapeId);
@@ -186,14 +186,14 @@ export class Node extends BaseTool {
     const anchors = this._anchorsMap.get(shapeId);
     const closed  = this._closedMap.get(shapeId) ?? false;
     const d       = buildPenPathD(anchors, closed);
-    const found = findItem(shapeId);
+    const found = findShape(shapeId);
     if (found) found.attrs.d = d;
   }
 
   _snapshotDs() {
     const snap = new Map();
     for (const id of this._editingIds) {
-      const found = findItem(id);
+      const found = findShape(id);
       if (found) snap.set(id, found.attrs.d ?? '');
     }
     return snap;

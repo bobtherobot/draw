@@ -1,7 +1,9 @@
-import { BaseObject } from '../BaseObject.js';
+import { DisplayObject } from '../DisplayObject.js';
+import { Container }     from '../Container.js';
 import { nextId } from '../../core/state.js';
 
-// Cache for wrapText results — keyed by "text|fontSize|fontFamily|boxWidth"
+// ── Wrap cache ────────────────────────────────────────────────────────────────
+
 const _wrapCache = new Map();
 let   _measureCtx = null;
 
@@ -33,16 +35,15 @@ function wrapText(text, fontSize, fontFamily, boxWidth) {
 
   _wrapCache.set(key, lines);
   if (_wrapCache.size > 200) {
-    // Evict oldest entry
     _wrapCache.delete(_wrapCache.keys().next().value);
   }
   return lines;
 }
 
-export class TextBlock extends BaseObject {
-  get id()    { return 'text-block'; }
-  get label() { return 'Text Block'; }
-  get icon()  { return 'object-text-block'; }
+// ── Renderer ──────────────────────────────────────────────────────────────────
+
+class TextBlockRenderer extends DisplayObject {
+  get id() { return 'text-block'; }
 
   createShape(initAttrs, initStyle) {
     const shape = {
@@ -67,7 +68,6 @@ export class TextBlock extends BaseObject {
     return shape;
   }
 
-  // CanvasKit draw is a no-op — text is rendered by the Canvas 2D layer in renderer.js
   draw(_ckCanvas, _shape, _viewState) {}
 
   drawCanvas2D(ctx, shape) {
@@ -127,9 +127,7 @@ export class TextBlock extends BaseObject {
     shape._boxHeight = (shape._boxHeight ?? 100) * Math.abs(sy);
   }
 
-  bakeRotation(shape, _angleDeg, _cx, _cy) {
-    // Area text rotation not currently supported — no-op
-  }
+  bakeRotation(shape, _angleDeg, _cx, _cy) {}
 
   toSVGString(shape, includeMetadata) {
     const s   = shape.style;
@@ -169,6 +167,26 @@ export class TextBlock extends BaseObject {
     return [{ x: shape.attrs.x, y: shape.attrs.y }];
   }
 }
+
+// ── Thin controller ───────────────────────────────────────────────────────────
+
+const _renderer = new TextBlockRenderer();
+
+export class TextBlock extends Container {
+  static id      = 'text-block';
+  static label   = 'Text Block';
+  static icon    = 'object-text-block';
+  static renderer = _renderer;
+
+  get typeId() { return 'text-block'; }
+  get label()  { return 'Text Block'; }
+  get icon()   { return 'object-text-block'; }
+
+  constructor(shape) { super(shape); }
+  _createDisplayObject() { return _renderer; }
+}
+
+// ── Private helpers ───────────────────────────────────────────────────────────
 
 function _escapeXML(s) {
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');

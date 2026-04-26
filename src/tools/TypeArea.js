@@ -46,15 +46,15 @@ export class TypeArea extends BaseTool {
       boxHeight: h,
       onCommit: (text) => {
         if (!text.trim()) return;
-        const ot    = ctx.getBaseObject('text-block');
+        const ot    = ctx.getDisplayObject('text-block');
         const shape = ot.createShape(
           { x, y, _text: text, _fontSize: 14, _fontFamily: 'sans-serif', _boxWidth: w, _boxHeight: h },
           { fill: ctx.state.currentStyle.fill ?? '#000000', stroke: 'none', strokeWidth: 1 }
         );
-        shape.parentId = ctx.state.activeItemId;
+        shape.parentId = ctx.state.activeContainerId;
         ctx.execute({
-          do()   { ctx.state.items.push(shape); ctx.state.selection = new Set([shape.id]); ctx.render(); },
-          undo() { ctx.state.items = ctx.state.items.filter(i => i.id !== shape.id); ctx.state.selection.clear(); ctx.render(); },
+          do()   { ctx.state.shapes.push(shape); ctx.state.selection = new Set([shape.id]); ctx.render(); },
+          undo() { ctx.state.shapes = ctx.state.shapes.filter(i => i.id !== shape.id); ctx.state.selection.clear(); ctx.render(); },
         });
       },
     });

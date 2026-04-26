@@ -1,6 +1,6 @@
 /**
  * Shape geometry transformations.
- * Used by BaseObject subclasses — not called directly by tools.
+ * Used by Container subclasses — not called directly by tools.
  */
 import { parsePathD, buildPathD, rotatePathD, rotatePoint } from './path-utils.js';
 
@@ -71,3 +71,35 @@ export function translatePathD(d, dx, dy) {
 
 // Re-export shared point helpers
 export { rotatePoint, rotatePathD } from './path-utils.js';
+
+/**
+ * Transform a point from a rotated local space into world (doc) space.
+ * The local space has its origin at (originX, originY) and is rotated
+ * by `angle` degrees relative to the world axes.
+ *
+ * @param {number} lx      local x
+ * @param {number} ly      local y
+ * @param {number} originX world-space x of the local origin
+ * @param {number} originY world-space y of the local origin
+ * @param {number} angle   rotation of the local space in degrees
+ * @returns {{x:number, y:number}}
+ */
+export function localToWorld(lx, ly, originX, originY, angle) {
+  return rotatePoint(originX + lx, originY + ly, originX, originY, angle);
+}
+
+/**
+ * Transform a point from world (doc) space into a rotated local space.
+ * Inverse of localToWorld.
+ *
+ * @param {number} wx      world x
+ * @param {number} wy      world y
+ * @param {number} originX world-space x of the local origin
+ * @param {number} originY world-space y of the local origin
+ * @param {number} angle   rotation of the local space in degrees
+ * @returns {{x:number, y:number}}
+ */
+export function worldToLocal(wx, wy, originX, originY, angle) {
+  const r = rotatePoint(wx, wy, originX, originY, -angle);
+  return { x: r.x - originX, y: r.y - originY };
+}

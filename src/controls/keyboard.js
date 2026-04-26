@@ -13,6 +13,7 @@ import { undo, redo, canUndo, canRedo } from '../core/history.js';
 import { zoomAt, fitToArtboard } from '../core/Viewport.js';
 import { newDocument, openSVG, saveSVG } from '../io/io.js';
 import { isEditing } from '../core/TextEdit.js';
+import { groupSelected, ungroupSelected } from '../operations/grouping.js';
 
 // Register built-in modifier overrides (Space → hand, Meta → select, Meta+Alt → zoom)
 registerModifierOverride(['space'], 'hand',   10);
@@ -50,6 +51,10 @@ function _onKeyDown(e) {
     if (canRedo()) { redo(); render(); }
     return;
   }
+
+  // Group / Ungroup
+  if ((e.metaKey || e.ctrlKey) && e.key === 'g' && !e.shiftKey) { e.preventDefault(); groupSelected(); return; }
+  if ((e.metaKey || e.ctrlKey) && e.key === 'g' &&  e.shiftKey) { e.preventDefault(); ungroupSelected(); return; }
 
   // File shortcuts
   if ((e.metaKey || e.ctrlKey) && e.key === 'n') { e.preventDefault(); newDocument(); return; }

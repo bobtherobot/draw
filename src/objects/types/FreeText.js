@@ -1,7 +1,8 @@
-import { BaseObject }        from '../BaseObject.js';
-import { nextId }            from '../../core/state.js';
-import { rotatePoint }       from '../../utils/geometry/path-utils.js';
-import { FreeTextAux } from './FreeTextAux.js';
+import { DisplayObject }  from '../DisplayObject.js';
+import { Container }      from '../Container.js';
+import { nextId }         from '../../core/state.js';
+import { rotatePoint }    from '../../utils/geometry/path-utils.js';
+import { FreeTextAux }    from './FreeTextAux.js';
 
 // ── Canvas measurement ────────────────────────────────────────────────────────
 
@@ -21,12 +22,10 @@ export function measureTextWidth(text, fontSize, fontFamily) {
   return maxW;
 }
 
-// ── BaseObject ────────────────────────────────────────────────────────────────
+// ── Renderer ──────────────────────────────────────────────────────────────────
 
-export class FreeText extends BaseObject {
-  get id()    { return 'free-text'; }
-  get label() { return 'Text'; }
-  get icon()  { return 'object-free-text'; }
+class FreeTextRenderer extends DisplayObject {
+  get id() { return 'free-text'; }
 
   createShape(initAttrs, initStyle) {
     return {
@@ -41,7 +40,6 @@ export class FreeText extends BaseObject {
     };
   }
 
-  // CanvasKit draw is a no-op — text is rendered by the Canvas 2D layer in renderer.js
   draw(_ckCanvas, _shape, _viewState) {}
 
   drawCanvas2D(ctx, shape) {
@@ -99,7 +97,6 @@ export class FreeText extends BaseObject {
 
     if (rotation === 0) return { x: bx, y: by, width: bw, height: bh };
 
-    // Rotate all 4 corners and return the axis-aligned bounding box.
     const rcx = shape._rotCx ?? shape.attrs.x;
     const rcy = shape._rotCy ?? (shape.attrs.y + fs);
     const corners = [
@@ -133,8 +130,6 @@ export class FreeText extends BaseObject {
       return null;
     }
 
-    // Un-rotate the click into the shape's local frame, then test against
-    // the unrotated bbox — avoids false hits in the AABB corners.
     const fs    = shape._fontSize ?? 14;
     const rcx   = shape._rotCx ?? shape.attrs.x;
     const rcy   = shape._rotCy ?? (shape.attrs.y + fs);
@@ -181,11 +176,6 @@ export class FreeText extends BaseObject {
     shape.attrs.y = oy + (shape.attrs.y - oy) * sy;
     shape._scaleX = (shape._scaleX ?? 1) * sx;
     shape._scaleY = (shape._scaleY ?? 1) * sy;
-    // When the shape is rotated, _rotCx/_rotCy is the pivot that maps attrs.x/y
-    // to the correct visual position.  Scaling it would move the fixed corner
-    // visually.  Leave it where it is; syncRotDisplay will recompute _rotDisplay
-    // from the new local bbox. For unrotated shapes, track it so a subsequent
-    // rotation starts from the right centre.
     if (shape._rotCx != null && !shape._rotation) {
       shape._rotCx = ox + (shape._rotCx - ox) * sx;
       shape._rotCy = oy + (shape._rotCy - oy) * sy;
@@ -197,14 +187,12 @@ export class FreeText extends BaseObject {
     const prevAngle = shape._rotDisplay?.angle ?? 0;
     const prevBBox  = shape._rotDisplay?.bbox  ?? this.getBBox({ ...shape, _rotation: 0 });
 
-    // New visual centre of this shape after the rotation.
     const prevCx = prevBBox.x + prevBBox.width  / 2;
     const prevCy = prevBBox.y + prevBBox.height / 2;
     const { x: newCx, y: newCy } = rotatePoint(prevCx, prevCy, cx, cy, angleDeg);
 
     const newAngle = (shape._rotation ?? 0) + angleDeg;
 
-    // Where attrs.x/y currently renders visually under the existing rotation.
     const oldPivotX = shape._rotCx ?? shape.attrs.x;
     const oldPivotY = shape._rotCy ?? (shape.attrs.y + fs);
     const oldAngle  = shape._rotation ?? 0;
@@ -212,12 +200,8 @@ export class FreeText extends BaseObject {
       ? rotatePoint(shape.attrs.x, shape.attrs.y, oldPivotX, oldPivotY, oldAngle)
       : { x: shape.attrs.x, y: shape.attrs.y };
 
-    // After this rotation, where the anchor lands visually.
     const { x: newVisX, y: newVisY } = rotatePoint(visAnchor.x, visAnchor.y, cx, cy, angleDeg);
 
-    // Store pivot at the shape's own visual centre and back-compute attrs.x/y so
-    // that drawCanvas2D renders at the correct position regardless of whether
-    // cx/cy was a collection pivot or the shape's own centre.
     const newAttrs = newAngle !== 0
       ? rotatePoint(newVisX, newVisY, newCx, newCy, -newAngle)
       : { x: newVisX, y: newVisY };
@@ -279,7 +263,6 @@ export class FreeText extends BaseObject {
     const tspans   = Array.from(el.querySelectorAll('tspan'));
     const fs       = Number(el.getAttribute('font-size') ?? 14);
     const firstY   = Number(tspans[0]?.getAttribute('y') ?? fs);
-    // tspan[0].y = attrs.y + fontSize  →  attrs.y = firstY - fontSize
     const x        = Number(tspans[0]?.getAttribute('x') ?? el.getAttribute('x') ?? 0);
     const y        = firstY - fs;
     const text     = tspans.length > 0
@@ -300,11 +283,28 @@ export class FreeText extends BaseObject {
   getWireframePoints(shape) {
     return [{ x: shape.attrs.x, y: shape.attrs.y }];
   }
-
-  createAuxObject(_item) {
-    return new FreeTextAux();
-  }
 }
+
+// ── Thin controller ───────────────────────────────────────────────────────────
+
+const _renderer = new FreeTextRenderer();
+
+export class FreeText extends Container {
+  static id      = 'free-text';
+  static label   = 'Text';
+  static icon    = 'object-free-text';
+  static renderer = _renderer;
+
+  get typeId() { return 'free-text'; }
+  get label()  { return 'Text'; }
+  get icon()   { return 'object-free-text'; }
+
+  constructor(shape) { super(shape); }
+  _createDisplayObject() { return _renderer; }
+  _createAux(_shape)      { return new FreeTextAux(); }
+}
+
+// ── Private helpers ───────────────────────────────────────────────────────────
 
 function _anchorFor(align) {
   if (align === 'center') return 'middle';

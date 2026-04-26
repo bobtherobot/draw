@@ -1,21 +1,21 @@
 /**
  * Document-level operations: new, open, save, export.
  */
-import { state, nextId, sanitizeItems } from '../core/state.js';
+import { state, nextId, sanitizeShapes } from '../core/state.js';
 import { emit }                  from '../core/events.js';
 import { fitToArtboard }         from '../core/Viewport.js';
 import { serializeJSON, deserializeJSON, exportSVG as buildSVG, importSVG } from './serializer.js';
-import { rebuildAll }            from '../core/item-registry.js';
+import { rebuildAll }            from '../core/shape-registry.js';
 
 /** Reset to a blank document. */
 export function newDocument() {
   const artboardId = nextId('item');
   const layerId    = nextId('item');
-  state.items = [
+  state.shapes = [
     { id: artboardId, type: 'artboard', name: 'Artboard 1', parentId: null, visible: true, locked: false, expanded: true, attrs: { x: 0, y: 0, width: 800, height: 600 } },
     { id: layerId,    type: 'group',    name: 'Layer 1',    parentId: artboardId, visible: true, locked: false, expanded: true },
   ];
-  state.activeItemId = layerId;
+  state.activeContainerId = layerId;
   state.selection.clear();
   state.doc = { name: 'Untitled' };
   emit('render', null);
@@ -29,13 +29,13 @@ export function openSVG() {
 
 /** Serialize and download as a native .draw (JSON) file. */
 export function saveSVG() {
-  const json = serializeJSON(state.items, state.doc);
+  const json = serializeJSON(state.shapes, state.doc);
   _download(json, `${state.doc.name || 'drawing'}.draw`, 'application/json');
 }
 
 /** Serialize and download as a clean export SVG (no metadata). */
 export function exportSVG() {
-  const svg = buildSVG(state.items, state.doc);
+  const svg = buildSVG(state.shapes, state.doc);
   _download(svg, `${state.doc.name || 'export'}.svg`, 'image/svg+xml');
 }
 
@@ -64,14 +64,14 @@ function _loadFile(text, filename) {
     : (importSVG(text) ?? deserializeJSON(text));
   if (!result) return;
 
-  state.items        = result.items;
-  // Prefer first layer (group child of artboard), fall back to first group or first item
-  state.activeItemId = result.items.find(i => i.type === 'group')?.id
-                     ?? result.items[0]?.id;
+  state.shapes        = result.shapes;
+  // Prefer first layer (group child of artboard), fall back to first group or first shape
+  state.activeContainerId = result.shapes.find(s => s.type === 'group')?.id
+                     ?? result.shapes[0]?.id;
   state.selection.clear();
   state.doc = { name: filename.replace(/\.(draw|svg|json)$/i, '') };
-  sanitizeItems(state.items);
-  rebuildAll(state.items);
+  sanitizeShapes(state.shapes);
+  rebuildAll(state.shapes);
 
   emit('render', null);
   fitToArtboard();

@@ -12,12 +12,12 @@
  * Hit areas in _handles[] are always in CSS pixels so handleAtPoint() can
  * compare directly against clientX/clientY offsets from getBoundingClientRect().
  */
-import { state, findItem }  from '../core/state.js';
+import { state, findShape }  from '../core/state.js';
 import { unionBBoxes }       from '../utils/geometry/bbox.js';
 import { getEditingShapeId } from '../core/TextEdit.js';
 import { getCanvasRect }     from '../core/Viewport.js';
 import { getCK }             from './renderer.js';
-import { getCompanions }     from '../core/item-registry.js';
+import { getController }     from '../core/shape-registry.js';
 import {
   css, docToCSS,
   drawBox, drawHandleVisuals, drawOriginCrosshair,
@@ -45,7 +45,7 @@ export function handleAtPoint(screenX, screenY) {
   // Per-item overlay handles (single selection, no live rotate drag)
   if (!state.activeRotation && state.selection.size === 1) {
     const [id] = state.selection;
-    const hit = getCompanions(id)?.overlay.hitAtPoint(cx, cy);
+    const hit = getController(id)?.overlay.hitAtPoint(cx, cy);
     if (hit) return hit;
   }
 
@@ -57,9 +57,9 @@ export function handleAtPoint(screenX, screenY) {
  * Render selection visuals onto ckCanvas (physical canvas-pixel space).
  * @param {object} ckCanvas  CanvasKit Canvas
  * @param {object} stateArg
- * @param {Function} getBaseObject
+ * @param {Function} getDisplayObject
  */
-export function renderSelection(ckCanvas, stateArg, getBaseObject) {
+export function renderSelection(ckCanvas, stateArg, getDisplayObject) {
   _handles.length = 0;
   if (stateArg.selection.size === 0) return;
 
@@ -74,7 +74,7 @@ export function renderSelection(ckCanvas, stateArg, getBaseObject) {
   // ── Live rotate drag overlay (collection, any selection size) ─────────────
   if (stateArg.activeRotation) {
     _drawRotated(ckCanvas, CK, stateArg.activeRotation, dc, dpr, accent, bg);
-    const rotSelected = [...stateArg.selection].map(id => findItem(id)).filter(Boolean);
+    const rotSelected = [...stateArg.selection].map(id => findShape(id)).filter(Boolean);
     const rotOrigin = stateArg.selectionOrigin ?? _uniformOriginFromSelected(rotSelected);
     const rotPt_ = rotOrigin ?? stateArg.activeRotation.center;
     const op = dc(rotPt_.x, rotPt_.y);
@@ -87,18 +87,15 @@ export function renderSelection(ckCanvas, stateArg, getBaseObject) {
   const selected = [];
   for (const id of stateArg.selection) {
     if (id === editId) continue;
-    const s = findItem(id);
+    const s = findShape(id);
     if (s) selected.push(s);
   }
   if (!selected.length) return;
 
   // ── Single selection → delegate to Overlay ──────────────────────────
   if (selected.length === 1) {
-    const id    = selected[0].id;
-    const comps = getCompanions(id);
-    if (comps?.overlay) {
-      comps.overlay.draw(ckCanvas, CK, comps.abstract, stateArg.viewport, dpr, stateArg.selectionOrigin);
-    }
+    const ctrl = getController(selected[0].id);
+    if (ctrl) ctrl.renderOverlay(ckCanvas, CK, stateArg.viewport, dpr, stateArg.selectionOrigin);
     return;
   }
 
@@ -121,7 +118,7 @@ export function renderSelection(ckCanvas, stateArg, getBaseObject) {
     originY = uOrigin?.y ?? rotData.center.y;
   } else {
     const bboxes = selected
-      .map(s => getBaseObject(s.type)?.getBBox(s))
+      .map(s => getDisplayObject(s.type)?.getBBox(s))
       .filter(Boolean);
     const bb = unionBBoxes(bboxes);
     if (!bb) return;

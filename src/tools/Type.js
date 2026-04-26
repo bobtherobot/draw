@@ -1,6 +1,6 @@
 import { BaseTool } from './BaseTool.js';
 import { startEditing, isEditing, commitEditing, charIndexAtPoint, setTextareaSelection } from '../core/TextEdit.js';
-import { findItem, state, allDisplayItems } from '../core/state.js';
+import { findShape, state, allDisplayShapes } from '../core/state.js';
 import { rotatePoint } from '../utils/geometry/path-utils.js';
 import { applyTransform } from '../core/Viewport.js';
 import { getCK } from '../render/renderer.js';
@@ -37,7 +37,7 @@ export class Type extends BaseTool {
     const isOverText = shape && (shape.type === 'free-text' || shape.type === 'text-block');
     if (!isOverText) return;
 
-    const ot       = this._ctx.getBaseObject(shape.type);
+    const ot       = this._ctx.getDisplayObject(shape.type);
     const rotation = shape._rotation ?? 0;
     // For rotated shapes get the unrotated local bbox — we apply rotation via concat.
     const bb = rotation !== 0
@@ -89,10 +89,10 @@ export class Type extends BaseTool {
     const zoom = ctx.state.viewport.zoom;
 
     // If the click lands on any existing text shape, re-edit it (front to back).
-    const textShapes = allDisplayItems().filter(s => s.type === 'free-text' || s.type === 'text-block');
+    const textShapes = allDisplayShapes().filter(s => s.type === 'free-text' || s.type === 'text-block');
     for (let i = textShapes.length - 1; i >= 0; i--) {
       const shape = textShapes[i];
-      const ot    = ctx.getBaseObject(shape.type);
+      const ot    = ctx.getDisplayObject(shape.type);
       if (ot.hitPart(shape, pos.x, pos.y, zoom)) {
         this._openTextEditor(shape, e.clientX, e.clientY);
         // Store the anchor index for drag-to-select (charIndexAtPoint uses
@@ -122,15 +122,15 @@ export class Type extends BaseTool {
       onInput: () => ctx.render(),
       onCommit: (text) => {
         if (!text.trim()) return;
-        const ot    = ctx.getBaseObject('free-text');
+        const ot    = ctx.getDisplayObject('free-text');
         const shape = ot.createShape(
           { x: pos.x, y: pos.y, _text: text, _fontSize: fontSize, _fontFamily: fontFamily, _textAlign: textAlign },
           { fill: fill === 'none' ? '#000000' : fill, stroke: 'none', strokeWidth: 1 },
         );
-        shape.parentId = ctx.state.activeItemId;
+        shape.parentId = ctx.state.activeContainerId;
         ctx.execute({
-          do()   { ctx.state.items.push(shape); ctx.state.selection = new Set([shape.id]); ctx.render(); },
-          undo() { ctx.state.items = ctx.state.items.filter(i => i.id !== shape.id); ctx.state.selection = new Set(); ctx.render(); },
+          do()   { ctx.state.shapes.push(shape); ctx.state.selection = new Set([shape.id]); ctx.render(); },
+          undo() { ctx.state.shapes = ctx.state.shapes.filter(i => i.id !== shape.id); ctx.state.selection = new Set(); ctx.render(); },
         });
       },
     });
@@ -164,22 +164,22 @@ export class Type extends BaseTool {
       initialText: shape._text ?? '',
       clickX, clickY,
       onInput: (text) => {
-        const s = findItem(shapeId);
+        const s = findShape(shapeId);
         if (s) { s._text = text; ctx.render(); }
       },
       onCommit: (text) => {
-        const s = findItem(shapeId);
+        const s = findShape(shapeId);
         if (s) s._text = snap._text;
         this._dragAnchorIdx = null;
         // Clear selection before execute so do()'s render doesn't flash the overlay.
         ctx.state.selection = new Set();
         ctx.execute({
-          do()   { const s = findItem(shapeId); if (s) { s._text = text; ctx.getBaseObject(s.type)?.syncRotDisplay?.(s); ctx.render(); } },
-          undo() { const s = findItem(shapeId); if (s) { s._text = snap._text; ctx.render(); } },
+          do()   { const s = findShape(shapeId); if (s) { s._text = text; ctx.getDisplayObject(s.type)?.syncRotDisplay?.(s); ctx.render(); } },
+          undo() { const s = findShape(shapeId); if (s) { s._text = snap._text; ctx.render(); } },
         });
       },
       onCancel: () => {
-        const s = findItem(shapeId);
+        const s = findShape(shapeId);
         if (s) s._text = snap._text;
         this._dragAnchorIdx = null;
         ctx.state.selection = new Set();
