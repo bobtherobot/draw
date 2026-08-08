@@ -3,105 +3,104 @@
 Tracks remaining work across sessions. Check off items as they are completed.
 Add new items under the appropriate section as work progresses.
 
----
-
-## v2 Rewrite — Build Phases
-
-- [x] Phase 0: Git setup (v1 branch preserved, v2 branch, clean scaffold)
-- [x] Phase 1: All default icon SVGs (tools, ui, objects, handles, cursors)
-- [x] Phase 2: Core JS modules (state, history, events, registry, intent, hit-test, modifiers, icons, viewport, textedit)
-- [x] Phase 3: Full LESS stack (variables, mixins, reset, all 9 component files, light theme)
-- [x] Phase 4: ObjectType modules (path, text-line, text-block, group)
-- [x] Phase 5: Render pipeline (renderer, overlay manager, selection, text-guides)
-- [x] Phase 6: Modes (normal, wireframe)
-- [x] Phase 7: IO (serializer, newDocument, openSVG, saveSVG, exportSVG)
-- [x] Phase 8: All 9 tools (select, node, pen, rect, ellipse, type, typearea, zoom, hand)
-- [x] Phase 9+10: Canvas event routing, intent/dispatch, all 5 control panels
-- [x] Phase 11: Developer tooling (slash command skills, reference docs, CLAUDE.md rewrite)
+Current branch: **v4**. The v2 build-phase checklist that used to live here is
+finished and has been removed; see git history for it.
 
 ---
 
-## Bug Fixes Applied
+## Done — v4 architecture
 
-- [x] `textedit.js`: Textarea positioned in viewport space — fixed to canvas-wrap-relative coords
-- [x] `viewport.js`: `zoomAt`/`panBy`/`fitToArtboard` used `emit('render')` instead of triggering render pipeline — fixed via `'viewport-change'` event + `on('viewport-change', render)` in `main.js`
-- [x] `layers-panel.js`: Add-layer do/undo called `emit('render')` instead of `render()` — layer shapes weren't redrawn
-- [x] `select.js`: Dead `post` variable in `_openTextEditor` removed
-- [x] `select.js`: Edge-only scale handles (n/s/e/w) incorrectly scaled both axes — now correctly constrain to one axis
-- [x] `select.js`: `shape._isArea` → `shape.type === 'text-block'` for text editor open
-- [x] `toolbar.js`: Dynamic imports for `zoomAt` and `on` replaced with static imports
-- [x] `keyboard.js`: Broken `require`-based lazy import replaced with static `getAllTools` import
-- [x] `renderer.js`: `initRenderer` signature unified to accept single `svg` element
-
----
-
-## Needs Browser Verification
-
-All tools need hands-on testing at http://localhost:8000. Known risk areas:
-
-- [ ] App boots without console errors
-- [ ] All 9 tool buttons appear in toolbar with correct icons
-- [ ] Select tool: click-select, shift-click multi-select, rubber-band, move, scale handles (all 8), rotate handle, delete key
-- [ ] Select tool: double-click text → opens textarea overlay at correct position
-- [ ] Node tool: drag anchor, drag control handles, smooth mirroring, marquee anchor selection
-- [ ] Pen tool: click to place anchors, drag to curve, close path, Escape to finish open
-- [ ] Rect tool: drag to draw, Shift to constrain square
-- [ ] Ellipse tool: drag to draw, Shift to constrain circle
-- [ ] Type tool: click to place, type, Enter/Escape to commit, result appears on canvas
-- [ ] TypeArea tool: drag box, type, text wraps within box
-- [ ] Zoom tool: click to zoom in, Alt+click to zoom out; Cmd+scroll wheel zoom
-- [ ] Hand tool: drag to pan; Space held → hand override while any other tool is active
-- [ ] Meta held → select override from any tool
-- [ ] Undo/redo: Cmd+Z / Cmd+Shift+Z cycle correctly
-- [ ] Open SVG: file picker opens, shapes load
-- [ ] Save SVG: file downloads with all shapes
-- [ ] Wireframe mode: shapes render as stroke-only outlines
-- [ ] Light theme: `body[data-theme="light"]` switches all colors; icons inherit correctly
-- [ ] Layer panel: add layer, rename (dblclick), visibility toggle, lock toggle
+- [x] Companion-object architecture — universal `Container` base, every item on
+      stage (path, text, group, artboard) gets a controller
+- [x] `_parent` / `_children` runtime tree wired on every Container
+- [x] `SelectionProxy` — replaces `for (const id of selection)` loops in
+      Select.js and TransformController
+- [x] CanvasKit (Skia WASM) render backend; text on a Canvas 2D overlay
+- [x] Groups — create/ungroup (Cmd+G / Cmd+Shift+G), hit-test promotion, full
+      `GroupRenderer` geometry, `normalizeGroup()` on deselect
+- [x] Rotate/scale/move incl. rotated multi-selection persisting through
+      rotate → scale → rotate → move sequences
+- [x] Rotated free-text editing (textarea CSS-rotated to match the shape)
+- [x] Type tool: first-click caret placement, drag-to-select, rotation-aware
+      hover outline
+- [x] Matrix transform layer (`mat2d.js`) — `_transform` DOMMatrix on every shape
+- [x] Direct Select tool (V); Select moved to A; Node tool unbound
+- [x] Rubber-band "Select by Intersect" option (Edit > Options)
+- [x] Undo/redo, layers panel, style panel, pan/zoom, hand/zoom tools
+- [x] Save/load `.draw` JSON; SVG import/export
 
 ---
 
-## Features To Add
-
-### Style panel
-- [ ] Font size control (number input) — reflects selected text shape's `_fontSize`; applies to selection via execute()
-- [ ] Font family control (select/dropdown) — applies `_fontFamily` to selected text shapes
-- [ ] Stroke dash pattern selector (none / dashed / dotted)
+## Next up
 
 ### Editing
-- [ ] Copy / paste (Cmd+C / Cmd+V) — shapes clone with offset; clipboard stored in `state.clipboard`
-- [ ] Group / ungroup (Cmd+G / Cmd+Shift+G) — wraps selected shapes in a `group` ObjectType
-- [ ] Duplicate (Cmd+D) — clone selected shapes with offset
+- [ ] Copy / paste (Cmd+C / Cmd+V) — shapes clone with offset; clipboard in `state.clipboard`
+- [ ] Duplicate (Cmd+D) — clone selection with offset
+- [ ] Align / distribute for multi-selection (no panel or shortcut yet)
+- [ ] Tab to cycle selection
 
-
-### Canvas / view
-- [ ] Snapping to grid / to other shapes (optional, low priority)
-- [ ] Ruler display along top and left edges (optional)
+### Style panel
+- [ ] Font family picker
+- [ ] Font weight picker
+- [ ] Stroke dash pattern selector (none / dashed / dotted)
 
 ### Document
-- [ ] Document setup dialog (width, height, name) — triggered by Cmd+Shift+D or menu
-- [ ] Export as PNG (via `canvas` element rasterization of the SVG)
-- [ ] MIKE: We must remember that we need to consider how we save files. Currently, I believe the the "save" feature is geared to just exporting the SVG. We'll want to change this so that save generates a JSON file, where we include everything that is needed to restore the file, including the layer structure, show/hide/lock states and any other important information needed to restore the user's project to the state it was in while they were working. So some thought needs to go into how we structure the JSON. We'll probably want to include timestamps, when the file was created, and an array of all the times it was edited.
+- [ ] Document setup dialog (artboard width / height / name)
+- [ ] Export as PNG (rasterize the CanvasKit surface)
+- [ ] Export / import all options and settings so a setup can be restored or shared
 
-### Status bar
-- [ ] Display active tool name + cursor position in doc coordinates
-- [ ] Display selection count when shapes are selected
-
-### Plugin / extension
-- [ ] Load and verify a test plugin from `plugins/` folder end-to-end
-- [ ] Publish stable import paths for `ObjectType`, `Tool`, `Mode` base classes
-
-### Context Menu
-- [ ] certain controls and panels will need right-click behaviour to pop-up a context menu for special features.
+### UI
+- [ ] Context menus (right-click on canvas, panels, layer rows)
+- [ ] Status bar — active tool, cursor position in doc coords, selection count
+- [ ] Angle readout while rotating
+- [ ] Display units — pt/mm/cm/in selector exists in Options but coordinates
+      still always render in px
 
 ---
 
-## Known Limitations / Future Work
+## Deferred / known gaps
 
-- Text rotation not supported (text-line `bakeRotation` is a no-op)
-- Group ObjectType is registered but group creation (Cmd+G) is not wired up
-- No snap-to-grid or smart guides
-- No artboard resize in-session (requires document setup dialog)
-- `openSVG` round-trip only preserves shapes with `data-type` metadata attributes; generic SVG import is partial
-- Provide a way for users to export/import all options and settings, so they can restore their setup or share their setup.
-- Collections - introduce a concept where display items, or even individual nodes in a shape can be added to a collection. Which is slightly different from a layer or a group, as collections can span layers, shapes or groups. Adding anything to a collection will allow a user to quickly show/hide, lock, or adjust anything (like fill, stroke, etc) that is in a collection when the collection (or multiple collections) are selected. Might get a little tricky if we allow shape nodes to be added to a collection -- we might want to have shape nodes in collections only when in wireframe mode?
+- [ ] Artboard resize UI — `Artboard.applyScale` is implemented but untested via
+      the UI; needs select + scale artboard without resizing its contents
+- [ ] Proper CanvasKit font loading (fetch TTF; 0.41.1 ships no bundled fonts)
+- [ ] Snapping to grid / smart guides
+- [ ] Rulers along top and left edges
+- [ ] Double-click a group to enter isolated group-editing mode
+- [ ] Plugin API — load and verify a test plugin from `plugins/` end-to-end;
+      publish stable import paths for the `Container` / `BaseTool` / `Mode` bases
+- [ ] `importSVG` round-trip only fully preserves shapes carrying `data-type`
+      metadata; generic SVG import is partial
+- [ ] Free-text anchor squares and baseline guides are currently missing —
+      decide whether to restore them or drop them deliberately
+
+### Wireframe mode
+
+Consolidate the design into `WIREFRAME-MODE.md`. Intended behaviour: in
+wireframe mode the app treats the artboard as if everything were in direct
+select mode — all nodes editable at once. The Select tool still picks
+individual objects, but clicking any control point or shape line activates
+that shape.
+
+### Collections
+
+A collection spans layers, groups and shapes — unlike a layer or a group.
+Anything added to a collection can be shown/hidden, locked, or restyled
+together when the collection is selected. Open question: allowing individual
+shape *nodes* into a collection may only make sense in wireframe mode.
+
+---
+
+## Matrix layer — deferred follow-ups
+
+`_transform` is in place but not yet the render-time source of truth. Remaining:
+
+- [ ] `hitPart()` inverse transform — FreeText still un-rotates hit points
+      manually via `rotatePoint`; could become `transformPoint(inverse(m), x, y)`
+- [ ] TransformController accumulated matrix — replace `_rotCenter` /
+      `_rotStart` / `_initialAngle` / `_rotInitialCenter` with one accumulator
+- [ ] FreeText `_scaleX/_scaleY/_rotation/_rotCx/_rotCy` → single matrix;
+      `drawCanvas2D` does `ctx.setTransform(...)` and draws at (0,0) local
+- [ ] Non-uniform scale / shear — encode directly in the matrix once
+      `_transform` is authoritative
+- [ ] Node-point transforms via `transformPoint` on individual Bézier controls
+- [ ] Remove `_rotDisplay` reads from `Overlay.draw` and `selection.js`
