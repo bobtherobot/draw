@@ -56,7 +56,9 @@
       "Bash(sed -i 's|from '\\\\''../render/|from '\\\\''../../render/|g' src/objects/types/PathObjectType.js)",
       "Bash(sed -i 's|from '\\\\''../utils/|from '\\\\''../../utils/|g' src/objects/types/PathObjectType.js src/objects/types/FreeTextObjectType.js src/objects/types/GroupObjectType.js)",
       "Bash(sed -i \"s|from './aux-object.js'|from '../AuxObject.js'|g\" src/objects/types/FreeTextAuxObject.js)",
-      "Bash(xargs sed *)"
+      "Bash(xargs sed *)",
+      "Bash(grep -E \"\\\\.js$\")",
+      "Bash(echo \"exit=$?\")"
     ]
   }
 }
