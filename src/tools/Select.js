@@ -7,7 +7,7 @@
  */
 import { BaseTool } from './BaseTool.js';
 import { startEditing, isEditing } from '../core/TextEdit.js';
-import { unionBBoxes } from '../utils/geometry/bbox.js';
+import { unionBBoxes, bboxIntersects } from '../utils/geometry/bbox.js';
 import { effectiveVisible, effectiveLocked, findShape, sanitizeShapes } from '../core/state.js';
 import { rotatePoint } from '../utils/geometry/path-utils.js';
 import { hitTest } from '../core/hit-test.js';
@@ -17,6 +17,8 @@ import { getCK } from '../render/renderer.js';
 import { TransformController } from './TransformController.js';
 import { SelectionProxy } from './SelectionProxy.js';
 import { cloneShape, restoreShape } from '../utils/snapshots.js';
+import { getController } from '../core/shape-registry.js';
+import { normalizeGroup } from '../objects/types/Group.js';
 
 const DBL_CLICK_MS  = 400;
 
@@ -35,10 +37,20 @@ function _handleCursor(part, rotAngle, active) {
   return _RESIZE_CURSORS[Math.round(eff / 45) % 4];
 }
 
+function _bandHits(shape, band, ctx) {
+  if (shape.type === 'group') {
+    return ctx.state.shapes
+      .filter(s => s.parentId === shape.id)
+      .some(child => _bandHits(child, band, ctx));
+  }
+  const bb = ctx.getDisplayObject(shape.type)?.getBBox(shape);
+  return bb ? bboxIntersects(bb, band) : false;
+}
+
 export class Select extends BaseTool {
   get id()       { return 'select'; }
   get label()    { return 'Select'; }
-  get shortcut() { return 'v'; }
+  get shortcut() { return 'a'; }
   get icon()     { return 'select'; }
 
   init(ctx) {
@@ -48,6 +60,7 @@ export class Select extends BaseTool {
   }
 
   activate() {
+    if (this._ctx) this._ctx.state.activeSelectTool = 'select';
     this._mode       = 'idle'; // 'idle'|'move'|'band'|'transop'
     this._dragStart  = null;
     this._moved      = false;
@@ -64,6 +77,7 @@ export class Select extends BaseTool {
 
   deactivate() {
     if (isEditing()) return; // let textarea commit naturally
+    this._normalizeDeselected(this._ctx.state.selection);
     if (this._ctx) this._ctx.state.selectionRotation = null;
     this._clearHandleCursor();
     this._cleanup();
@@ -108,6 +122,7 @@ export class Select extends BaseTool {
     if (hitId) {
       if (!e.shiftKey && !ctx.state.selection.has(hitId)) {
         // Switching to a different shape — new selection, discard session state.
+        this._normalizeDeselected(ctx.state.selection, new Set([hitId]));
         ctx.state.selectionOrigin   = null;
         ctx.state.selectionRotation = null;
         ctx.state.selection = new Set([hitId]);
@@ -117,6 +132,7 @@ export class Select extends BaseTool {
         ctx.state.selectionRotation = null;
         const sel = new Set(ctx.state.selection);
         if (sel.has(hitId)) sel.delete(hitId); else sel.add(hitId);
+        this._normalizeDeselected(ctx.state.selection, sel);
         ctx.state.selection = sel;
       }
       // else: clicking an already-selected shape to move — keep session state.
@@ -128,7 +144,10 @@ export class Select extends BaseTool {
       // Clicking empty space — discard session state.
       ctx.state.selectionOrigin   = null;
       ctx.state.selectionRotation = null;
-      if (!e.shiftKey) ctx.state.selection = new Set();
+      if (!e.shiftKey) {
+        this._normalizeDeselected(ctx.state.selection);
+        ctx.state.selection = new Set();
+      }
       this._mode      = 'band';
       ctx.state.operation = 'band';
       this._bandLayer = ctx.overlay.acquireLayer('select-band');
@@ -216,6 +235,7 @@ export class Select extends BaseTool {
 
   onKeyDown(e) {
     if (e.key === 'Escape') {
+      this._normalizeDeselected(this._ctx.state.selection);
       this._ctx.state.selection        = new Set();
       this._ctx.state.selectionOrigin  = null;
       this._ctx.state.selectionRotation = null;
@@ -248,20 +268,24 @@ export class Select extends BaseTool {
     const x1 = Math.max(s.x, end.x), y1 = Math.max(s.y, end.y);
     if (Math.abs(x1-x0) < 2 && Math.abs(y1-y0) < 2) return;
 
-    const ctx = this._ctx;
-    const sel = additive ? new Set(ctx.state.selection) : new Set();
-    // Iterate direct children of the active container (groups + display items)
-    // so a group is selected only when its own bbox is fully inside the band.
+    const ctx  = this._ctx;
+    const sel  = additive ? new Set(ctx.state.selection) : new Set();
+    const band = { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
     for (const shape of this._selectablesAtLevel()) {
       if (!effectiveVisible(shape)) continue;
       if (effectiveLocked(shape)) continue;
-      const bb = ctx.getDisplayObject(shape.type)?.getBBox(shape);
-      if (!bb) continue;
-      if (bb.x >= x0 && bb.x + bb.width  <= x1 &&
-          bb.y >= y0 && bb.y + bb.height <= y1) {
-        sel.add(shape.id);
+      let hit;
+      if (ctx.state.options.selectByIntersect) {
+        hit = _bandHits(shape, band, ctx);
+      } else {
+        const bb = ctx.getDisplayObject(shape.type)?.getBBox(shape);
+        if (!bb) continue;
+        hit = bb.x >= x0 && bb.x + bb.width  <= x1 &&
+              bb.y >= y0 && bb.y + bb.height <= y1;
       }
+      if (hit) sel.add(shape.id);
     }
+    this._normalizeDeselected(ctx.state.selection, sel);
     ctx.state.selection        = sel;
     ctx.state.selectionRotation = null;
   }
@@ -348,6 +372,18 @@ export class Select extends BaseTool {
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
+
+  // Normalize any groups in prevSel that are absent from nextSel.
+  // Silent — no history entry; just syncs group attrs to the AABB of their children.
+  _normalizeDeselected(prevSel, nextSel = new Set()) {
+    for (const id of prevSel) {
+      if (nextSel.has(id)) continue;
+      const shape = findShape(id);
+      if (shape?.type !== 'group') continue;
+      const container = getController(id);
+      if (container) normalizeGroup(container);
+    }
+  }
 
   _shapeIdAt(screenX, screenY) {
     const ctx  = this._ctx;

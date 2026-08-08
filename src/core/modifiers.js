@@ -2,7 +2,7 @@
  * Modifier-key tracking and effective-tool resolution.
  *
  * BaseTool-switching overrides (registered, higher priority wins):
- *   Meta (Cmd)   → 'select'
+ *   Meta (Cmd)   → state.activeSelectTool (dynamic: 'select' or 'direct-select')
  *   Space        → 'hand'
  *   Meta + Alt   → 'zoom'
  *
@@ -20,17 +20,20 @@ export const modifiers = {
   space: false,
 };
 
-/** @type {Array<{keys: string[], toolId: string, priority: number}>} */
+/** @type {Array<{keys: string[], toolId: string|(()=>string), priority: number, subset: boolean}>} */
 const _overrides = [];
 
 /**
  * Register a modifier combo that temporarily switches the active tool.
- * @param {string[]} keys     - subset of ['meta','ctrl','alt','shift','space']
- * @param {string}   toolId
- * @param {number}   [priority=0]
+ * @param {string[]}              keys     - subset of ['meta','ctrl','alt','shift','space']
+ * @param {string|(() => string)} toolId
+ * @param {number}                [priority=0]
+ * @param {boolean}               [subset=false] - when true, matches whenever all keys are
+ *   present in the active set (not just an exact match). Use for primary modifiers like
+ *   meta so that meta+shift, meta+alt, etc. still resolve to the same tool.
  */
-export function registerModifierOverride(keys, toolId, priority = 0) {
-  _overrides.push({ keys: [...keys].sort(), toolId, priority });
+export function registerModifierOverride(keys, toolId, priority = 0, subset = false) {
+  _overrides.push({ keys: [...keys].sort(), toolId, priority, subset });
   _overrides.sort((a, b) => b.priority - a.priority);
 }
 
@@ -46,9 +49,12 @@ export function resolveEffectiveTool(activeTool) {
     .map(([k]) => k)
     .sort();
 
-  for (const { keys, toolId } of _overrides) {
-    if (keys.length === active.length && keys.every((k, i) => k === active[i])) {
-      return toolId;
+  for (const { keys, toolId, subset } of _overrides) {
+    const matches = subset
+      ? keys.every(k => active.includes(k))
+      : keys.length === active.length && keys.every((k, i) => k === active[i]);
+    if (matches) {
+      return typeof toolId === 'function' ? toolId() : toolId;
     }
   }
   return activeTool;

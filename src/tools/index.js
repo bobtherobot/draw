@@ -1,6 +1,7 @@
 import { registerTool } from '../core/registry.js';
-import { Select }   from './Select.js';
-import { Node }     from './Node.js';
+import { Select }        from './Select.js';
+import { DirectSelect }  from './DirectSelect.js';
+import { Node }          from './Node.js';
 import { Pen }      from './Pen.js';
 import { Rect }     from './Rect.js';
 import { Ellipse }  from './Ellipse.js';
@@ -10,6 +11,7 @@ import { Zoom }     from './Zoom.js';
 import { Hand }     from './Hand.js';
 
 registerTool(new Select());
+registerTool(new DirectSelect());
 registerTool(new Node());
 registerTool(new Pen());
 registerTool(new Rect());

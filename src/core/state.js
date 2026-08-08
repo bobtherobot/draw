@@ -44,8 +44,9 @@ const _artboardId       = nextId('item'); // 'item1'
 const _defaultLayerId   = nextId('item'); // 'item2'
 
 export const state = {
-  activeTool:  'select',
-  activeMode:  'normal',
+  activeTool:       'select',
+  activeMode:       'normal',
+  activeSelectTool: 'select',
 
   /** @type {object[]} flat ordered shape array — tree structure encoded via parentId */
   shapes: [
@@ -86,7 +87,7 @@ export const state = {
 
   doc: { name: 'Untitled' },
 
-  options: { theme: 'dark', units: 'px', pasteboardColor: null },
+  options: { theme: 'dark', units: 'px', pasteboardColor: null, selectByIntersect: false },
 
   /**
    * @typedef {Object} Intent

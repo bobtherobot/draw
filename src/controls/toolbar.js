@@ -67,7 +67,7 @@ function _buildToolbar() {
   _toolbarEl.className = 'toolbar';
 
   // BaseTool order for toolbar display
-  const ORDER = ['select','node','pen','rect','ellipse','type','type-area','zoom','hand'];
+  const ORDER = ['select','direct-select','node','pen','rect','ellipse','type','type-area','zoom','hand'];
   const tools = getAllTools().sort((a, b) => {
     const ai = ORDER.indexOf(a.id);
     const bi = ORDER.indexOf(b.id);

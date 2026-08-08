@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" aria-hidden="true">
+  <path fill="var(--theme-bg-raised)" stroke="currentColor" stroke-width="1" stroke-linejoin="round" d="M3 1.5v11.1l2.9-2.9h5.6L3 1.5z"/>
+  <path fill="var(--theme-bg-raised)" stroke="currentColor" stroke-width="1" stroke-linejoin="round" d="M8.9 11.4l1.8 4 1.4-.6-1.8-4H12.5l-3.6-3.6v5.6l-.6-1.4z"/>
+</svg>

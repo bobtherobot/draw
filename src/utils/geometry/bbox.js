@@ -47,3 +47,8 @@ export function pointInBBox(bbox, px, py, tol = 0) {
   return px >= bbox.x - tol && px <= bbox.x + bbox.width  + tol &&
          py >= bbox.y - tol && py <= bbox.y + bbox.height + tol;
 }
+
+export function bboxIntersects(a, b) {
+  return a.x < b.x + b.width  && a.x + a.width  > b.x &&
+         a.y < b.y + b.height && a.y + a.height > b.y;
+}

@@ -15,10 +15,16 @@ function _el(tag, cls) {
   return el;
 }
 
+let _fieldSeq = 0;
 function _field(labelText, inputEl) {
   const row = _el('div', 'dialog__field');
   const lbl = document.createElement('label');
   lbl.textContent = labelText;
+  if (inputEl.type === 'checkbox') {
+    const id = `dlg-field-${++_fieldSeq}`;
+    inputEl.id  = id;
+    lbl.htmlFor = id;
+  }
   row.append(lbl, inputEl);
   return row;
 }
@@ -40,6 +46,14 @@ function _numberInput(value, min, onChange) {
     const n = parseFloat(el.value);
     if (!isNaN(n) && n >= min) onChange(n);
   });
+  return el;
+}
+
+function _checkbox(checked, onChange) {
+  const el  = document.createElement('input');
+  el.type   = 'checkbox';
+  el.checked = checked;
+  el.addEventListener('change', () => onChange(el.checked));
   return el;
 }
 
@@ -192,7 +206,7 @@ export function showDocumentSettings() {
 
 export function showOptions() {
   const original = { theme: state.options.theme, units: state.options.units };
-  const vals     = { ...original };
+  const vals     = { ...original, selectByIntersect: state.options.selectByIntersect };
 
   _openDialog({
     title: 'Options',
@@ -210,6 +224,8 @@ export function showOptions() {
         v => { vals.units = v; },
       );
 
+      const intersectChk = _checkbox(vals.selectByIntersect, v => { vals.selectByIntersect = v; });
+
       // Export / Import row
       const ioRow  = _el('div', 'dialog__field dialog__field--actions');
       const expBtn = _el('button', 'dialog__btn dialog__btn--secondary');
@@ -219,11 +235,13 @@ export function showOptions() {
       impBtn.textContent = 'Import Settings…';
       impBtn.addEventListener('click', () => {
         importSettings(() => {
-          // Sync selects to imported values
-          themeSel.value = state.options.theme;
-          unitsSel.value = state.options.units;
-          vals.theme = state.options.theme;
-          vals.units = state.options.units;
+          // Sync controls to imported values
+          themeSel.value        = state.options.theme;
+          unitsSel.value        = state.options.units;
+          intersectChk.checked  = state.options.selectByIntersect;
+          vals.theme            = state.options.theme;
+          vals.units            = state.options.units;
+          vals.selectByIntersect = state.options.selectByIntersect;
           render();
         });
       });
@@ -232,11 +250,13 @@ export function showOptions() {
       body.append(
         _field('Theme', themeSel),
         _field('Units', unitsSel),
+        _field('Select by Intersect', intersectChk),
         ioRow,
       );
     },
     onApply() {
-      state.options.units = vals.units;
+      state.options.units            = vals.units;
+      state.options.selectByIntersect = vals.selectByIntersect;
       if (vals.theme !== state.options.theme) applyTheme(vals.theme);
       saveSettings();
       render();

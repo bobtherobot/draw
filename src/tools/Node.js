@@ -12,7 +12,7 @@ const HIT_R = 6; // screen-px hit radius
 export class Node extends BaseTool {
   get id()       { return 'node'; }
   get label()    { return 'Node'; }
-  get shortcut() { return 'a'; }
+  get shortcut() { return null; }
   get icon()     { return 'node'; }
 
   init(ctx) {

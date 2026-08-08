@@ -15,9 +15,12 @@ import { newDocument, openSVG, saveSVG } from '../io/io.js';
 import { isEditing } from '../core/TextEdit.js';
 import { groupSelected, ungroupSelected } from '../operations/grouping.js';
 
-// Register built-in modifier overrides (Space → hand, Meta → select, Meta+Alt → zoom)
-registerModifierOverride(['space'], 'hand',   10);
-registerModifierOverride(['meta'],  'select', 9);
+// Register built-in modifier overrides (Space → hand, Meta → active select tool, Meta+Alt → zoom)
+// Space is exact: only fires when space is the sole active modifier.
+// Meta is subset: fires whenever meta is held, regardless of additional shift/alt — those keys
+// only change WHAT the selection tool does, not which tool is active.
+registerModifierOverride(['space'], 'hand',                        10);
+registerModifierOverride(['meta'],  () => state.activeSelectTool,   9, true);
 
 export function initKeyboard() {
   document.addEventListener('keydown', _onKeyDown);

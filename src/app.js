@@ -85,7 +85,8 @@ export function applyTheme(themeName) {
     ['--cursor-grabbing', `url('${iconBase}/icons/cursors/cursor-grabbing.svg') 8 8, grabbing`],
     ['--cursor-zoom-in',  `url('${iconBase}/icons/cursors/cursor-zoom-in.svg') 10 10, zoom-in`],
     ['--cursor-zoom-out', `url('${iconBase}/icons/cursors/cursor-zoom-out.svg') 10 10, zoom-out`],
-    ['--cursor-rotate',   `url('${iconBase}/icons/cursors/cursor-rotate.svg') 12 12, crosshair`],
+    ['--cursor-rotate',         `url('${iconBase}/icons/cursors/cursor-rotate.svg') 12 12, crosshair`],
+    ['--cursor-direct-select',  `url('${iconBase}/icons/cursors/cursor-direct-select.svg') 2 2, default`],
   ];
   for (const [prop, val] of cursors) {
     document.documentElement.style.setProperty(prop, val);
