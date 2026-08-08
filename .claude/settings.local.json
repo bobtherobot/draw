@@ -58,7 +58,8 @@
       "Bash(sed -i \"s|from './aux-object.js'|from '../AuxObject.js'|g\" src/objects/types/FreeTextAuxObject.js)",
       "Bash(xargs sed *)",
       "Bash(grep -E \"\\\\.js$\")",
-      "Bash(echo \"exit=$?\")"
+      "Bash(echo \"exit=$?\")",
+      "Bash(bash -c 'echo A && echo B & echo C')"
     ]
   }
 }
