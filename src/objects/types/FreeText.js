@@ -2,6 +2,7 @@ import { DisplayObject }  from '../DisplayObject.js';
 import { Container }      from '../Container.js';
 import { nextId }         from '../../core/state.js';
 import { rotatePoint }    from '../../utils/geometry/path-utils.js';
+import { syncTransform }  from '../../utils/geometry/mat2d.js';
 import { FreeTextAux }    from './FreeTextAux.js';
 
 // ── Canvas measurement ────────────────────────────────────────────────────────
@@ -37,6 +38,7 @@ class FreeTextRenderer extends DisplayObject {
       _fontSize:   initAttrs._fontSize   ?? 14,
       _fontFamily: initAttrs._fontFamily ?? 'sans-serif',
       _textAlign:  initAttrs._textAlign  ?? 'left',
+      _transform:  null,
     };
   }
 
@@ -155,6 +157,7 @@ class FreeTextRenderer extends DisplayObject {
       center: { x: visCx, y: visCy },
       angle:  shape._rotation,
     };
+    syncTransform(shape);
   }
 
   translate(shape, dx, dy) {
@@ -168,6 +171,7 @@ class FreeTextRenderer extends DisplayObject {
         center: { x: rd.center.x + dx, y: rd.center.y + dy },
         angle:  rd.angle,
       };
+      syncTransform(shape);
     }
   }
 
@@ -221,6 +225,7 @@ class FreeTextRenderer extends DisplayObject {
       center: { x: newCx, y: newCy },
       angle:  prevAngle + angleDeg,
     };
+    syncTransform(shape);
   }
 
   toSVGString(shape, includeMetadata) {

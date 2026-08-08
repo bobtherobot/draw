@@ -65,6 +65,7 @@ class TextBlockRenderer extends DisplayObject {
         angle:  0,
       };
     }
+    shape._transform = null;
     return shape;
   }
 

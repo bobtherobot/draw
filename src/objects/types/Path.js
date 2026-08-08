@@ -3,6 +3,7 @@ import { Container }     from '../Container.js';
 import { nextId } from '../../core/state.js';
 import { parsePathD, buildPathD } from '../../utils/geometry/path-utils.js';
 import { translatePathD, scalePathD, rotatePathD, rotatePoint } from '../../utils/geometry/transform.js';
+import { rotation, scaling, multiply, applyToPathD, syncTransform } from '../../utils/geometry/mat2d.js';
 import { getCK } from '../../render/renderer.js';
 
 const HIT_TOLERANCE = 4;
@@ -22,6 +23,7 @@ class PathRenderer extends DisplayObject {
         angle:  0,
       };
     }
+    shape._transform = null;
     return shape;
   }
 
@@ -59,38 +61,7 @@ class PathRenderer extends DisplayObject {
   }
 
   getBBox(shape) {
-    const segs = parsePathD(shape.attrs.d ?? '');
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    const expand = (x, y) => {
-      if (x < minX) minX = x; if (x > maxX) maxX = x;
-      if (y < minY) minY = y; if (y > maxY) maxY = y;
-    };
-    let cx = 0, cy = 0;
-    for (const { cmd, args } of segs) {
-      switch (cmd) {
-        case 'M':
-          cx = args[0]; cy = args[1];
-          expand(cx, cy);
-          break;
-        case 'L':
-          cx = args[0]; cy = args[1];
-          expand(cx, cy);
-          break;
-        case 'C': {
-          const [x1, y1, x2, y2, x3, y3] = args;
-          expand(cx, cy);
-          expand(x3, y3);
-          for (const t of _cubicExtrema(cx, x1, x2, x3))
-            expand(_cubicAt(t, cx, x1, x2, x3), _cubicAt(t, cy, y1, y2, y3));
-          for (const t of _cubicExtrema(cy, y1, y2, y3))
-            expand(_cubicAt(t, cx, x1, x2, x3), _cubicAt(t, cy, y1, y2, y3));
-          cx = x3; cy = y3;
-          break;
-        }
-      }
-    }
-    if (!isFinite(minX)) return { x: 0, y: 0, width: 0, height: 0 };
-    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+    return _localBBox(shape);
   }
 
   hitPart(shape, docX, docY, zoom) {
@@ -140,21 +111,20 @@ class PathRenderer extends DisplayObject {
         bbox:   { ...bbox,   x: bbox.x + dx,      y: bbox.y + dy },
         center: { x: center.x + dx, y: center.y + dy },
       };
+      syncTransform(shape);
     }
   }
 
   scale(shape, sx, sy, ox, oy) {
     shape.attrs.d = scalePathD(shape.attrs.d ?? '', sx, sy, ox, oy);
     delete shape._rotDisplay;
+    delete shape._transform;
   }
 
   applyScaleRotated(shape, sx, sy, ox, oy, rotDisp) {
     const { center: { x: cx, y: cy }, angle } = rotDisp;
-    let d = shape.attrs.d;
-    d = rotatePathD(d, -angle, cx, cy);
-    d = scalePathD(d, sx, sy, ox, oy);
-    d = rotatePathD(d, angle, cx, cy);
-    shape.attrs.d = d;
+    const m = multiply(multiply(rotation(angle, cx, cy), scaling(sx, sy, ox, oy)), rotation(-angle, cx, cy));
+    shape.attrs.d = applyToPathD(m, shape.attrs.d);
 
     const shapeBB   = shape._rotDisplay?.bbox;
     const snapCtr   = shape._rotDisplay?.center ?? { x: cx, y: cy };
@@ -174,6 +144,7 @@ class PathRenderer extends DisplayObject {
     } else {
       delete shape._rotDisplay;
     }
+    syncTransform(shape);
     return true;
   }
 
@@ -196,6 +167,7 @@ class PathRenderer extends DisplayObject {
       angle:  prevAngle + angleDeg,
     };
     shape.attrs.d = rotatePathD(shape.attrs.d ?? '', angleDeg, cx, cy);
+    syncTransform(shape);
   }
 
   toSVGString(shape, includeMetadata) {
@@ -249,6 +221,41 @@ export class Path extends Container {
 }
 
 // ── Private helpers ───────────────────────────────────────────────────────────
+
+function _localBBox(shape) {
+  const segs = parsePathD(shape.attrs.d ?? '');
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  const expand = (x, y) => {
+    if (x < minX) minX = x; if (x > maxX) maxX = x;
+    if (y < minY) minY = y; if (y > maxY) maxY = y;
+  };
+  let cx = 0, cy = 0;
+  for (const { cmd, args } of segs) {
+    switch (cmd) {
+      case 'M':
+        cx = args[0]; cy = args[1];
+        expand(cx, cy);
+        break;
+      case 'L':
+        cx = args[0]; cy = args[1];
+        expand(cx, cy);
+        break;
+      case 'C': {
+        const [x1, y1, x2, y2, x3, y3] = args;
+        expand(cx, cy);
+        expand(x3, y3);
+        for (const t of _cubicExtrema(cx, x1, x2, x3))
+          expand(_cubicAt(t, cx, x1, x2, x3), _cubicAt(t, cy, y1, y2, y3));
+        for (const t of _cubicExtrema(cy, y1, y2, y3))
+          expand(_cubicAt(t, cx, x1, x2, x3), _cubicAt(t, cy, y1, y2, y3));
+        cx = x3; cy = y3;
+        break;
+      }
+    }
+  }
+  if (!isFinite(minX)) return { x: 0, y: 0, width: 0, height: 0 };
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+}
 
 function _replayPath2D(ctx, segs) {
   for (const { cmd, args } of segs) {

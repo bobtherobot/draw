@@ -2,6 +2,7 @@ import { DisplayObject } from '../DisplayObject.js';
 import { Container }     from '../Container.js';
 import { nextId } from '../../core/state.js';
 import { localToWorld, worldToLocal, rotatePoint } from '../../utils/geometry/transform.js';
+import { rotation, syncTransform, transformBBox } from '../../utils/geometry/mat2d.js';
 
 // ── Renderer ──────────────────────────────────────────────────────────────────
 
@@ -10,10 +11,11 @@ class GroupRenderer extends DisplayObject {
 
   createShape(initAttrs, initStyle) {
     return {
-      id:    nextId(this.id),
-      type:  'group',
-      attrs: { x: 0, y: 0, width: 0, height: 0, ...initAttrs },
-      style: { ...initStyle },
+      id:         nextId(this.id),
+      type:       'group',
+      attrs:      { x: 0, y: 0, width: 0, height: 0, ...initAttrs },
+      style:      { ...initStyle },
+      _transform: null,
     };
   }
 
@@ -22,17 +24,8 @@ class GroupRenderer extends DisplayObject {
   getBBox(shape) {
     const { x, y, width, height } = shape.attrs ?? {};
     if (x == null) return null;
-    if (!shape._rotDisplay) return { x, y, width, height };
-
-    // Return the axis-aligned hull of the rotated rectangle.
-    // Center stays the same; apparent dimensions expand with angle.
-    const { center, angle } = shape._rotDisplay;
-    const rad  = angle * Math.PI / 180;
-    const cos  = Math.abs(Math.cos(rad));
-    const sin  = Math.abs(Math.sin(rad));
-    const hw   = width  * cos + height * sin;
-    const hh   = width  * sin + height * cos;
-    return { x: center.x - hw / 2, y: center.y - hh / 2, width: hw, height: hh };
+    if (!shape._transform) return { x, y, width, height };
+    return transformBBox(shape._transform, { x, y, width, height });
   }
 
   hitPart(shape, docX, docY, zoom) {
@@ -56,6 +49,7 @@ class GroupRenderer extends DisplayObject {
         bbox:   { ...bbox, x: bbox.x + dx, y: bbox.y + dy },
         center: { x: center.x + dx, y: center.y + dy },
       };
+      syncTransform(shape);
     }
   }
 
@@ -108,7 +102,7 @@ class GroupRenderer extends DisplayObject {
     // Read prevBBox from _rotDisplay (or current attrs) BEFORE updating attrs —
     // same ordering as PathRenderer.bakeRotation, which reads getBBox before mutating attrs.d.
     const prevAngle = shape._rotDisplay?.angle ?? 0;
-    const prevBBox  = shape._rotDisplay?.bbox  ?? this.getBBox(shape);
+    const prevBBox  = shape._rotDisplay?.bbox  ?? { x: shape.attrs.x, y: shape.attrs.y, width: shape.attrs.width, height: shape.attrs.height };
     const prevCx    = prevBBox.x + prevBBox.width  / 2;
     const prevCy    = prevBBox.y + prevBBox.height / 2;
     const { x: newCx, y: newCy } = rotatePoint(prevCx, prevCy, cx, cy, angle);
@@ -120,6 +114,7 @@ class GroupRenderer extends DisplayObject {
       center: { x: newCx, y: newCy },
       angle:  prevAngle + angle,
     };
+    syncTransform(shape);
   }
 
   syncRotDisplay(shape) {
@@ -132,15 +127,16 @@ class GroupRenderer extends DisplayObject {
       center: { x: cx, y: cy },
       angle:  shape._rotDisplay.angle,
     };
+    syncTransform(shape);
   }
 
   applyScaleRotated(shape, sx, sy, ox, oy, rotDisp) {
     const { center: { x: cx, y: cy }, angle } = rotDisp;
     const midX = shape.attrs.x + shape.attrs.width  / 2;
     const midY = shape.attrs.y + shape.attrs.height / 2;
-    const local   = rotatePoint(midX, midY, cx, cy, -angle);
-    const scaled  = { x: ox + (local.x - ox) * sx, y: oy + (local.y - oy) * sy };
-    const newMid  = rotatePoint(scaled.x, scaled.y, cx, cy, angle);
+    const local  = rotatePoint(midX, midY, cx, cy, -angle);
+    const scaled = { x: ox + (local.x - ox) * sx, y: oy + (local.y - oy) * sy };
+    const newMid = rotatePoint(scaled.x, scaled.y, cx, cy, angle);
     shape.attrs.width  *= Math.abs(sx);
     shape.attrs.height *= Math.abs(sy);
     shape.attrs.x = newMid.x - shape.attrs.width  / 2;
@@ -164,6 +160,7 @@ class GroupRenderer extends DisplayObject {
     } else {
       delete shape._rotDisplay;
     }
+    syncTransform(shape);
     return true;
   }
 
@@ -181,6 +178,37 @@ class GroupRenderer extends DisplayObject {
       style: {},
     };
   }
+}
+
+// ── Normalize ─────────────────────────────────────────────────────────────────
+
+/**
+ * Recompute a group's attrs as the AABB of all its children, then clear
+ * _rotDisplay and _transform. Call this when the group leaves the selection
+ * so the overlay is a clean axis-aligned rect on the next selection.
+ *
+ * Depth-first: nested groups are normalized before the parent so the parent's
+ * AABB is computed from already-corrected child bounds.
+ */
+export function normalizeGroup(container) {
+  for (const child of container.children) {
+    if (child.shape.type === 'group') normalizeGroup(child);
+  }
+  const bboxes = container.children
+    .map(c => c.displayObject.getBBox(c.shape))
+    .filter(Boolean);
+  if (bboxes.length === 0) return;
+  const minX = Math.min(...bboxes.map(b => b.x));
+  const minY = Math.min(...bboxes.map(b => b.y));
+  const maxX = Math.max(...bboxes.map(b => b.x + b.width));
+  const maxY = Math.max(...bboxes.map(b => b.y + b.height));
+  const shape = container.shape;
+  shape.attrs.x      = minX;
+  shape.attrs.y      = minY;
+  shape.attrs.width  = maxX - minX;
+  shape.attrs.height = maxY - minY;
+  delete shape._rotDisplay;
+  shape._transform = null;
 }
 
 // ── Thin controller ───────────────────────────────────────────────────────────

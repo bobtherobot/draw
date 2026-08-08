@@ -25,7 +25,8 @@ import { nextId, sanitizeShapes } from '../core/state.js';
  * @returns {string}
  */
 export function serializeJSON(shapes, doc) {
-  return JSON.stringify({ version: 1, doc, items: shapes }, null, 2);
+  const cleaned = shapes.map(({ _rotDisplay, _transform, _origin, ...rest }) => rest);
+  return JSON.stringify({ version: 1, doc, items: cleaned }, null, 2);
 }
 
 /**
