@@ -3,11 +3,13 @@
   "version": "2.0.0",
   "description": "Browser-based vector graphics editor",
   "private": true,
+  "type": "module",
   "scripts": {
     "css": "lessc styles/main.less dist/main.css",
     "css:watch": "chokidar 'styles/**/*.less' -c 'lessc styles/main.less dist/main.css'",
     "serve": "python3 -m http.server 8000",
-    "dev": "npm run css && npm run serve & npm run css:watch"
+    "dev": "npm run css && npm run serve & npm run css:watch",
+    "test": "node --test tests/*.test.mjs"
   },
   "devDependencies": {
     "less": "^4.2.0",

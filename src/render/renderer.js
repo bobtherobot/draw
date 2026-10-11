@@ -22,6 +22,7 @@ import { OverlayManager }            from './OverlayManager.js';
 import { renderSelection }           from './selection.js';
 import { getEditingShapeId }         from '../core/TextEdit.js';
 import { syncControllers, getController } from '../core/shape-registry.js';
+import { makeSurface }                    from './surface.js';
 
 let _CK             = null;  // CanvasKit instance
 let _canvas         = null;  // HTMLCanvasElement
@@ -106,7 +107,7 @@ export function render() {
 // ── Private ──────────────────────────────────────────────────────────────────
 
 function _createSurface() {
-  _surface  = _CK.MakeWebGLCanvasSurface(_canvas) ?? _CK.MakeSWCanvasSurface(_canvas);
+  _surface  = makeSurface(_CK, _canvas);
   _ckCanvas = _surface?.getCanvas() ?? null;
 }
 
