@@ -1,0 +1,101 @@
+/**
+ * DisplayObject base class.
+ *
+ * Each shape type (path, free-text, text-block, group) is a stateless singleton
+ * that extends this class. Shape data stays as plain POJOs for simple undo snapshotting.
+ *
+ * See .claude/docs/OBJECT-TYPE.md for full contract documentation.
+ */
+import { nextId } from '../core/state.js';
+
+export class DisplayObject {
+  /** Unique type id matching shape.type. @type {string} */
+  get id() { throw new Error(`${this.constructor.name}: id not implemented`); }
+
+  /**
+   * Create a fresh shape POJO.
+   * @param {object} initAttrs
+   * @param {object} initStyle
+   * @returns {object}
+   */
+  createShape(initAttrs, initStyle) {
+    return { id: nextId(this.id), type: this.id, attrs: { ...initAttrs }, style: { ...initStyle } };
+  }
+
+  /**
+   * Draw this shape onto a CanvasKit canvas. Called every render frame.
+   * @param {object} ckCanvas  CanvasKit canvas
+   * @param {object} shape
+   * @param {{mode:string, zoom:number}} viewState
+   */
+  draw(ckCanvas, shape, viewState) { throw new Error(`${this.constructor.name}: draw not implemented`); }
+
+  /**
+   * Return the axis-aligned bounding box in document coords.
+   * @param {object} shape
+   * @returns {{x:number, y:number, width:number, height:number} | null}
+   */
+  getBBox(shape) { return null; }
+
+  /**
+   * Hit-test a document-space point against this shape's parts.
+   * @param {object} shape
+   * @param {number} docX
+   * @param {number} docY
+   * @param {number} zoom
+   * @returns {{part: string, detail?: *} | null}
+   */
+  hitPart(shape, docX, docY, zoom) { return null; }
+
+  /**
+   * List of interactive parts for overlay rendering.
+   * @param {object} shape
+   * @returns {Array<{id:string, cursor?:string, isVisible?:Function}>}
+   */
+  parts(shape) { return [{ id: 'body', cursor: 'move' }]; }
+
+  // ── Geometry mutations (all mutate shape in-place) ──────────────────────────
+
+  /** @param {object} shape @param {number} dx @param {number} dy */
+  translate(shape, dx, dy) { throw new Error(`${this.constructor.name}: translate not implemented`); }
+
+  /** @param {object} shape @param {number} sx @param {number} sy @param {number} ox @param {number} oy */
+  scale(shape, sx, sy, ox, oy) { throw new Error(`${this.constructor.name}: scale not implemented`); }
+
+  /** @param {object} shape @param {number} angleDeg @param {number} cx @param {number} cy */
+  bakeRotation(shape, angleDeg, cx, cy) { throw new Error(`${this.constructor.name}: bakeRotation not implemented`); }
+
+  /**
+   * Scale in a rotated coordinate frame. Called by Container.applyScale when rotDisp is set.
+   * Return true if handled; false to fall through to default scale() + syncRotDisplay().
+   */
+  applyScaleRotated(_shape, _sx, _sy, _ox, _oy, _rotDisp) { return false; }
+
+  // ── Serialization ───────────────────────────────────────────────────────────
+
+  /**
+   * Serialize shape to an SVG string for save/export.
+   * @param {object}  shape
+   * @param {boolean} includeMetadata
+   * @returns {string}
+   */
+  toSVGString(shape, includeMetadata) { return ''; }
+
+  /**
+   * Deserialize a DOM element from a parsed SVG file into a shape POJO.
+   * Return null if this element is not handled by this type.
+   * IDs are always freshly generated — never read from the element.
+   * @param {Element} el
+   * @returns {object|null}
+   */
+  fromSVGElement(el) { return null; }
+
+  // ── Wireframe ───────────────────────────────────────────────────────────────
+
+  /**
+   * Return anchor/node points for wireframe overlay.
+   * @param {object} shape
+   * @returns {{x:number, y:number}[]}
+   */
+  getWireframePoints(shape) { return []; }
+}

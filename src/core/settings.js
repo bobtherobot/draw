@@ -52,13 +52,15 @@ export function loadSettings() {
   if (typeof s.theme           === 'string') state.options.theme           = s.theme;
   if (typeof s.units           === 'string') state.options.units           = s.units;
   if (s.pasteboardColor !== undefined)       state.options.pasteboardColor = s.pasteboardColor;
+  if (typeof s.selectByIntersect === 'boolean') state.options.selectByIntersect = s.selectByIntersect;
 }
 
 export function saveSettings() {
   saveSection('options', {
-    theme:           state.options.theme,
-    units:           state.options.units,
-    pasteboardColor: state.options.pasteboardColor,
+    theme:             state.options.theme,
+    units:             state.options.units,
+    pasteboardColor:   state.options.pasteboardColor,
+    selectByIntersect: state.options.selectByIntersect,
   });
 }
 

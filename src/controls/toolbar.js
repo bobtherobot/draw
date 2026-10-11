@@ -7,12 +7,12 @@
  */
 import { state }                        from '../core/state.js';
 import { on, emit }                     from '../core/events.js';
-import { getTool, getAllTools, getObjectType } from '../core/registry.js';
+import { getTool, getAllTools, getDisplayObject } from '../core/registry.js';
 import { hitTest, computeIntent }       from '../core/hit-test.js';
 import { dispatch }                     from '../core/intent.js';
 import { render, getOverlay } from '../render/renderer.js';
 import { getIconSync }                  from '../core/icons.js';
-import { screenToDoc, zoomAt }          from '../viewport.js';
+import { screenToDoc, zoomAt }          from '../core/Viewport.js';
 import { execute }                      from '../core/history.js';
 import { modifiers }                    from '../core/modifiers.js';
 import { setActiveTool }                from './keyboard.js';
@@ -54,7 +54,7 @@ function _buildAppContext() {
     execute,
     render,
     screenToDoc,
-    getObjectType,
+    getDisplayObject,
     setActiveTool,
     emit,
     getModifiers: () => ({ ...modifiers }),
@@ -66,8 +66,8 @@ function _buildToolbar() {
   _toolbarEl.innerHTML = '';
   _toolbarEl.className = 'toolbar';
 
-  // Tool order for toolbar display
-  const ORDER = ['select','node','pen','rect','ellipse','type','type-area','zoom','hand'];
+  // BaseTool order for toolbar display
+  const ORDER = ['select','direct-select','node','pen','rect','ellipse','type','type-area','zoom','hand'];
   const tools = getAllTools().sort((a, b) => {
     const ai = ORDER.indexOf(a.id);
     const bi = ORDER.indexOf(b.id);
@@ -126,7 +126,7 @@ function _wireCanvasWheel(canvasWrap) {
 function _onMouseDown(e) {
   e.preventDefault(); // prevent browser text selection during canvas drags
 
-  const hit    = hitTest(e.clientX, e.clientY, getObjectType);
+  const hit    = hitTest(e.clientX, e.clientY, getDisplayObject);
   const intent = computeIntent(hit);
   // Scale/rotate handles always belong to the select tool, regardless of the active drawing tool.
   if (hit?.isHandle) intent.effectiveTool = 'select';
@@ -144,7 +144,7 @@ function _onMouseDown(e) {
 }
 
 function _onMouseMove(e) {
-  const hit    = hitTest(e.clientX, e.clientY, getObjectType);
+  const hit    = hitTest(e.clientX, e.clientY, getDisplayObject);
   const intent = computeIntent(hit);
   state.intent  = intent;
   state.hover   = { objectType: hit?.objectType ?? null, part: hit?.part ?? null, shape: hit?.shape ?? null };
@@ -180,7 +180,7 @@ function _onMouseUp(e) {
 }
 
 function _onDblClick(e) {
-  const hit    = hitTest(e.clientX, e.clientY, getObjectType);
+  const hit    = hitTest(e.clientX, e.clientY, getDisplayObject);
   const intent = computeIntent(hit);
 
   const handled = dispatch(intent, 'dblclick', _appCtx, e);

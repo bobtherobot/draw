@@ -3,13 +3,13 @@
  *
  * Priority order:
  *   1. Overlay handles (scale/rotate) — data-handle attribute on DOM element
- *   2. ObjectType.hitPart() on selected shapes (front-to-back)
- *   3. ObjectType.hitPart() on all shapes (front-to-back)
+ *   2. Container.hitPart() on selected shapes (front-to-back)
+ *   3. Container.hitPart() on all shapes (front-to-back)
  *   4. null → empty canvas
  */
-import { state, allDisplayItems } from './state.js';
+import { state, allDisplayShapes } from './state.js';
 import { handleAtPoint }          from '../render/selection.js';
-import { getCanvasRect }          from '../viewport.js';
+import { getCanvasRect }          from './Viewport.js';
 
 /**
  * @typedef {Object} HitResult
@@ -22,10 +22,10 @@ import { getCanvasRect }          from '../viewport.js';
 /**
  * @param {number}   screenX
  * @param {number}   screenY
- * @param {Function} getObjectType  - registry.getObjectType
+ * @param {Function} getDisplayObject  - registry.getDisplayObject
  * @returns {HitResult|null}
  */
-export function hitTest(screenX, screenY, getObjectType) {
+export function hitTest(screenX, screenY, getDisplayObject) {
   // 1. Overlay handles (scale, rotate)
   const handle = handleAtPoint(screenX, screenY);
   if (handle) {
@@ -44,22 +44,22 @@ export function hitTest(screenX, screenY, getObjectType) {
   const docY = (screenY - top)  / zoom + vy;
 
   // 2. Selected shapes first (front-to-back within selection)
-  const selectedShapes = allDisplayItems().filter(s => state.selection.has(s.id));
-  const hit2 = _hitShapes(selectedShapes, docX, docY, zoom, getObjectType);
+  const selectedShapes = allDisplayShapes().filter(s => state.selection.has(s.id));
+  const hit2 = _hitShapes(selectedShapes, docX, docY, zoom, getDisplayObject);
   if (hit2) return hit2;
 
   // 3. All shapes front-to-back
-  const all  = allDisplayItems();
-  const hit3 = _hitShapes(all, docX, docY, zoom, getObjectType);
+  const all  = allDisplayShapes();
+  const hit3 = _hitShapes(all, docX, docY, zoom, getDisplayObject);
   if (hit3) return hit3;
 
   return null;
 }
 
-function _hitShapes(shapes, docX, docY, zoom, getObjectType) {
+function _hitShapes(shapes, docX, docY, zoom, getDisplayObject) {
   for (let i = shapes.length - 1; i >= 0; i--) {
     const shape  = shapes[i];
-    const ot     = getObjectType(shape.type);
+    const ot     = getDisplayObject(shape.type);
     if (!ot) continue;
     const result = ot.hitPart(shape, docX, docY, zoom);
     if (result) {

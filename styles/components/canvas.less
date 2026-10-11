@@ -11,8 +11,9 @@ body.dragging {
   background: var(--theme-pasteboard);
 
   // Tool cursor classes applied to canvas-wrap by controls/toolbar.js
-  &.tool-select    { cursor: var(--cursor-default, default); }
-  &.tool-node      { cursor: var(--cursor-default, default); }
+  &.tool-select        { cursor: var(--cursor-default, default); }
+  &.tool-direct-select { cursor: var(--cursor-direct-select, default); }
+  &.tool-node          { cursor: var(--cursor-default, default); }
   &.tool-pen       { cursor: var(--cursor-pen, crosshair); }
   &.tool-rect      { cursor: var(--cursor-crosshair, crosshair); }
   &.tool-ellipse   { cursor: var(--cursor-crosshair, crosshair); }

@@ -2,12 +2,16 @@
  * Style panel — fill, stroke, stroke-width controls.
  * Reflects state.currentStyle and applies to selection.
  */
-import { state, findItem } from '../core/state.js';
+import { state, findShape } from '../core/state.js';
 import { on, emit }   from '../core/events.js';
 import { execute }    from '../core/history.js';
 import { render } from '../render/renderer.js';
+import { createColorMemory, NONE } from '../utils/color-memory.js';
 
 let _pickerSnapshot = null; // style snapshot at color-picker open
+
+// Last real colour per property, so `none` is always recoverable.
+const _colorMemory = createColorMemory({ fill: '#000000', stroke: '#000000' });
 
 export function initStylePanel(registerPanel) {
   registerPanel('style', 'Style', (contentEl) => {
@@ -38,7 +42,7 @@ function _colorRow(prop, label) {
   const noneBtn = _el('button', 'style-panel__none-btn');
   noneBtn.id    = `none-${prop}`;
   noneBtn.textContent = '∅';
-  noneBtn.title = `Set ${label} to none`;
+  noneBtn.title = `Toggle ${label} between none and the last colour`;
 
   input.addEventListener('focus', () => {
     _pickerSnapshot = _snapshotSelection();
@@ -48,12 +52,16 @@ function _colorRow(prop, label) {
   });
   input.addEventListener('change', () => {
     _commitColor(prop, _pickerSnapshot);
-    _pickerSnapshot = null;
+    // Re-arm rather than clear: the input keeps focus after the picker closes,
+    // so a second picker session fires `change` with no intervening `focus`.
+    // The just-committed colour is the correct baseline for undoing it.
+    _pickerSnapshot = _snapshotSelection();
   });
+  // Toggle, not a one-way switch: this is the deterministic way back from
+  // `none`, independent of whether the native picker emits a change event.
   noneBtn.addEventListener('click', () => {
     const snap = _snapshotSelection();
-    const val  = 'none';
-    _commitColor(prop, snap, val);
+    _commitColor(prop, snap, _colorMemory.toggle(prop, _getDisplayStyle()[prop]));
   });
 
   row.append(lbl, swatch, noneBtn);
@@ -108,25 +116,31 @@ function _syncToCurrentStyle() {
   if (!fillInput) return;
 
   const fill   = s.fill   ?? '#000000';
-  const stroke = s.stroke ?? 'none';
+  const stroke = s.stroke ?? NONE;
   const sw     = s.strokeWidth ?? 1;
 
-  fillInput.value   = fill === 'none' ? '#000000' : fill;
-  strokeInput.value = stroke === 'none' ? '#000000' : stroke;
+  _colorMemory.remember('fill', fill);
+  _colorMemory.remember('stroke', stroke);
+
+  // Seed the picker with the last real colour rather than a hardcoded black:
+  // re-picking the seeded value is a native no-op that emits no event, so the
+  // seed must never be a colour the user is likely to want back.
+  fillInput.value   = fill   === NONE ? _colorMemory.recall('fill')   : fill;
+  strokeInput.value = stroke === NONE ? _colorMemory.recall('stroke') : stroke;
   weightInput.value = sw;
 
-  fillSwatch.style.background   = fill   === 'none' ? '' : fill;
-  strokeSwatch.style.background = stroke === 'none' ? '' : stroke;
-  fillSwatch.classList.toggle('none',   fill   === 'none');
-  strokeSwatch.classList.toggle('none', stroke === 'none');
-  nFill.classList.toggle('active',   fill   === 'none');
-  nStroke.classList.toggle('active', stroke === 'none');
+  fillSwatch.style.background   = fill   === NONE ? '' : fill;
+  strokeSwatch.style.background = stroke === NONE ? '' : stroke;
+  fillSwatch.classList.toggle('none',   fill   === NONE);
+  strokeSwatch.classList.toggle('none', stroke === NONE);
+  nFill.classList.toggle('active',   fill   === NONE);
+  nStroke.classList.toggle('active', stroke === NONE);
 }
 
 function _getDisplayStyle() {
   for (const id of state.selection) {
-    const shape = findItem(id);
-    if (shape) return shape.style;
+    const shape = findShape(id);
+    if (shape?.style) return shape.style;
   }
   return state.currentStyle;
 }
@@ -141,15 +155,18 @@ function _applyLive(prop, value) {
 
 function _commitColor(prop, snapshot, value) {
   const val = value ?? state.currentStyle[prop];
+  // A picker session should always have armed a snapshot; fall back to the
+  // live style so an unexpected null degrades to a no-op undo, not a throw.
+  const snap = snapshot ?? _snapshotSelection();
   execute({
     do()   { _applyStyle(prop, val); state.currentStyle[prop] = val; render(); },
-    undo() { _restoreSnapshot(snapshot); state.currentStyle[prop] = snapshot.currentStyle[prop]; render(); },
+    undo() { _restoreSnapshot(snap); state.currentStyle[prop] = snap.currentStyle[prop]; render(); },
   });
 }
 
 function _applyStyle(prop, value) {
   for (const id of state.selection) {
-    const shape = findItem(id);
+    const shape = findShape(id);
     if (!shape) continue;
     shape.style[prop] = value;
   }
@@ -158,15 +175,16 @@ function _applyStyle(prop, value) {
 function _snapshotSelection() {
   const shapes = {};
   for (const id of state.selection) {
-    const shape = findItem(id);
+    const shape = findShape(id);
     if (shape) shapes[id] = { ...shape.style };
   }
   return { shapes, currentStyle: { ...state.currentStyle } };
 }
 
 function _restoreSnapshot(snap) {
+  if (!snap?.shapes) return;
   for (const [id, style] of Object.entries(snap.shapes)) {
-    const shape = findItem(id);
+    const shape = findShape(id);
     if (shape) {
       Object.assign(shape.style, style);
     }

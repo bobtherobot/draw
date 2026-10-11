@@ -10,13 +10,17 @@ import { getTool, getAllTools, getAllKeybindings } from '../core/registry.js';
 import { setModifier, registerModifierOverride } from '../core/modifiers.js';
 import { render }               from '../render/renderer.js';
 import { undo, redo, canUndo, canRedo } from '../core/history.js';
-import { zoomAt, fitToArtboard } from '../viewport.js';
+import { zoomAt, fitToArtboard } from '../core/Viewport.js';
 import { newDocument, openSVG, saveSVG } from '../io/io.js';
-import { isEditing } from '../textedit.js';
+import { isEditing } from '../core/TextEdit.js';
+import { groupSelected, ungroupSelected } from '../operations/grouping.js';
 
-// Register built-in modifier overrides (Space → hand, Meta → select, Meta+Alt → zoom)
-registerModifierOverride(['space'], 'hand',   10);
-registerModifierOverride(['meta'],  'select', 9);
+// Register built-in modifier overrides (Space → hand, Meta → active select tool, Meta+Alt → zoom)
+// Space is exact: only fires when space is the sole active modifier.
+// Meta is subset: fires whenever meta is held, regardless of additional shift/alt — those keys
+// only change WHAT the selection tool does, not which tool is active.
+registerModifierOverride(['space'], 'hand',                        10);
+registerModifierOverride(['meta'],  () => state.activeSelectTool,   9, true);
 
 export function initKeyboard() {
   document.addEventListener('keydown', _onKeyDown);
@@ -51,6 +55,10 @@ function _onKeyDown(e) {
     return;
   }
 
+  // Group / Ungroup
+  if ((e.metaKey || e.ctrlKey) && e.key === 'g' && !e.shiftKey) { e.preventDefault(); groupSelected(); return; }
+  if ((e.metaKey || e.ctrlKey) && e.key === 'g' &&  e.shiftKey) { e.preventDefault(); ungroupSelected(); return; }
+
   // File shortcuts
   if ((e.metaKey || e.ctrlKey) && e.key === 'n') { e.preventDefault(); newDocument(); return; }
   if ((e.metaKey || e.ctrlKey) && e.key === 'o') { e.preventDefault(); openSVG(); return; }
@@ -61,7 +69,7 @@ function _onKeyDown(e) {
   if ((e.metaKey || e.ctrlKey) && e.key === '-')                     { e.preventDefault(); zoomAt(1/1.5); return; }
   if ((e.metaKey || e.ctrlKey) && e.key === '0')                     { e.preventDefault(); fitToArtboard(); return; }
 
-  // Tool shortcuts (single key, no modifier) — registered per tool
+  // BaseTool shortcuts (single key, no modifier) — registered per tool
   if (!e.metaKey && !e.ctrlKey && !e.altKey) {
     const key = e.key.toLowerCase();
     for (const tool of _getRegisteredTools()) {

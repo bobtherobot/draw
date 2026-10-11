@@ -97,6 +97,16 @@
     color-scheme: dark;
   }
 
+  // Checkboxes need appearance restored (global reset sets appearance:none on all inputs).
+  input[type="checkbox"] {
+    appearance: auto;
+    accent-color: var(--theme-accent);
+    flex-shrink: 0;
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+  }
+
   &__sep {
     border: none;
     border-top: 1px solid var(--theme-bg-active);

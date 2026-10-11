@@ -29,11 +29,15 @@
     position: relative;
     overflow: hidden;
 
-    // "None" diagonal slash indicator
+    // "None" diagonal slash indicator.
+    // Purely decorative: it is the last child in tree order, so it paints
+    // above the full-bleed colour input. Without pointer-events:none it
+    // swallows the click and "none" becomes unrecoverable.
     &.none::after {
       content: '';
       position: absolute;
       inset: 0;
+      pointer-events: none;
       background: linear-gradient(
         to bottom right,
         transparent calc(50% - 0.7px),
